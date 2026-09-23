@@ -22,6 +22,8 @@ type Props = {
   paused?: boolean;
   /** css touch-action for the wrapper ("pan-y" keeps page scroll alive on mobile) */
   touchAction?: "pan-y" | "none";
+  /** buzz the device (Vibration API) on taps — main studio canvas only */
+  haptic?: boolean;
 };
 
 export function WallpaperCanvas({
@@ -34,6 +36,7 @@ export function WallpaperCanvas({
   static: isStatic = false,
   paused = false,
   touchAction = "pan-y",
+  haptic = false,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -215,6 +218,10 @@ export function WallpaperCanvas({
         y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
       });
       if (pointerRef.current.taps.length > 8) pointerRef.current.taps.shift();
+      // subtle haptic tick — real devices only (feature-detected)
+      if (haptic && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+        navigator.vibrate(9);
+      }
     };
     const onUp = () => {
       pointerRef.current.down = false;
@@ -248,7 +255,7 @@ export function WallpaperCanvas({
         wrap.removeEventListener("pointerleave", onLeave);
       }
     };
-  }, [def.id, interactive, isStatic, effFps, eco]);
+  }, [def.id, interactive, isStatic, effFps, eco, haptic]);
 
   // react to config changes without rebuilding observers
   useEffect(() => {

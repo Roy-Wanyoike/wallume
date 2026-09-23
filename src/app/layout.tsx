@@ -15,10 +15,13 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "Wallume — Interactive Live Wallpapers for Phone & Desktop",
   description:
-    "200+ living wallpapers that react to your touch. Tune palette, motion and glow in real time, then export a crisp PNG or looping live video sized exactly for your phone, tablet or desktop. Free, no account needed.",
+    "330+ living wallpapers that react to your touch. Tune palette, motion and glow in real time, then export a crisp PNG or looping live video sized exactly for your phone, tablet or desktop. Free, no account needed.",
   keywords: [
     "wallpaper",
     "live wallpaper",

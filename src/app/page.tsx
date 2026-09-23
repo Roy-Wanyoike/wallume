@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import {
   ArrowDown,
   Download,
@@ -15,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { db } from "@/lib/db";
 import { WALLPAPERS } from "@/lib/wallpapers/catalog";
+import { configFromPreset } from "@/lib/wallpapers/render";
 import type { StatsMap } from "@/lib/wallpapers/types";
 import { SiteHeader } from "@/components/wallpaper/site-header";
 import { WallumeApp } from "@/components/wallpaper/wallume-app";
@@ -22,6 +24,47 @@ import { FadeIn, FadeInItem, FadeInStagger } from "@/components/wallpaper/fade-i
 import { SurpriseButton } from "@/components/wallpaper/surprise-button";
 
 export const dynamic = "force-dynamic";
+
+/** Rich link previews — shared preset links (`?p=code`) show the scene name
+ *  and a palette-branded OG card; plain links show today's Scene of the Day. */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<Metadata> {
+  const sp = await searchParams;
+  const code = typeof sp.p === "string" ? sp.p : undefined;
+
+  if (code) {
+    try {
+      const row = await db.preset.findUnique({ where: { code } });
+      if (row) {
+        const parsed = configFromPreset(JSON.parse(row.data));
+        if (parsed) {
+          return {
+            title: `${parsed.def.icon} ${parsed.def.name} — shared with Wallume`,
+            description: parsed.def.tagline,
+            openGraph: {
+              title: `${parsed.def.icon} ${parsed.def.name} — Wallume`,
+              description: parsed.def.tagline,
+              images: [{ url: `/api/og?p=${encodeURIComponent(code)}`, width: 1200, height: 630 }],
+            },
+          };
+        }
+      }
+    } catch {
+      // fall through to the default preview
+    }
+  }
+
+  return {
+    openGraph: {
+      title: "Wallume — Interactive Live Wallpapers",
+      description: "Living scenes you can tune and take with you. Free & watermark-free.",
+      images: [{ url: "/api/og", width: 1200, height: 630 }],
+    },
+  };
+}
 
 async function getInitialStats(): Promise<StatsMap> {
   try {
@@ -54,7 +97,7 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
         <FadeIn>
           <Badge
             variant="secondary"
-            className="mb-5 gap-1.5 border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-foreground/80"
+            className="mb-5 max-w-full gap-1.5 whitespace-normal border border-white/10 bg-white/5 px-3 py-1.5 text-center text-xs text-foreground/80"
           >
             <Sparkles className="h-3.5 w-3.5 text-fuchsia-400" />
             {WALLPAPERS.length} living scenes · they react to your touch · painted live in your browser
@@ -70,7 +113,7 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
         </FadeIn>
         <FadeIn delay={0.16}>
           <p className="mx-auto mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-            290+ interactive scenes — fish that scatter, fireworks you can launch, lightning
+            330+ interactive scenes — fish that scatter, balloons you can release, meteors
             you can call. Tune palette, motion and glow in real time, then export a crisp
             high-resolution wallpaper — or a looping live video — sized exactly for your
             phone, tablet or desktop.
@@ -150,7 +193,7 @@ function HowTo() {
 
   return (
     <section id="how-to" className="mx-auto w-full max-w-6xl scroll-mt-20 px-4 pt-20">
-      <h2 className="text-center text-2xl font-bold tracking-tight">From browser to lock screen</h2>
+      <h2 className="section-accent text-center text-2xl font-bold tracking-tight">From browser to lock screen</h2>
       <p className="mx-auto mt-2 max-w-lg text-center text-sm text-muted-foreground">
         Everything runs locally on your device — no uploads, no accounts, no watermarks.
       </p>
@@ -259,9 +302,10 @@ function SiteFooter() {
   return (
     <footer className="mt-auto border-t border-white/5 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-4 text-sm text-muted-foreground sm:flex-row">
-        <p>
-          <span className="font-semibold text-foreground">Wallume</span> — interactive
-          wallpapers, painted by code.
+        <p className="flex items-center gap-2">
+          <span className="font-semibold text-foreground">Wallume</span>
+          <span className="version-chip">v2.4</span>
+          <span className="hidden sm:inline">— interactive wallpapers, painted by code.</span>
         </p>
         <nav aria-label="Footer" className="flex items-center gap-4">
           <a href="#studio" className="transition-colors hover:text-foreground">

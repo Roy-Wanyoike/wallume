@@ -88,7 +88,7 @@ function PhonePreview({
       />
       <div className="rounded-[2.6rem] border border-white/10 bg-zinc-950 p-2 shadow-[0_25px_80px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/5 transition-transform duration-300 group-hover:-translate-y-1">
         <div className="relative aspect-[9/19.5] overflow-hidden rounded-[2rem] bg-black">
-          <WallpaperCanvas def={def} config={config} interactive fps={60} className="absolute inset-0" />
+          <WallpaperCanvas def={def} config={config} interactive fps={60} haptic className="absolute inset-0" />
 
           {/* readability scrims */}
           <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/35 to-transparent" />
@@ -158,7 +158,7 @@ function DesktopPreview({
         {/* monitor */}
         <div className="rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-[0_25px_80px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/5">
           <div className="relative aspect-[16/10] overflow-hidden rounded-xl bg-black">
-            <WallpaperCanvas def={def} config={config} interactive fps={60} className="absolute inset-0" />
+            <WallpaperCanvas def={def} config={config} interactive fps={60} haptic className="absolute inset-0" />
 
             {/* top menu bar */}
             <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-black/35 px-3 py-1.5 text-[10px] font-medium text-white/90 backdrop-blur-sm">

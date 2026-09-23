@@ -2704,6 +2704,782 @@ const emberForge: DrawFn = (ctx, w, h, t, p, env) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* 31 · Balloon Fiesta — sweep for wind, tap releases a balloon        */
+/* ------------------------------------------------------------------ */
+
+type BalloonState = {
+  wind: number;
+  windY: number;
+  released: { x: number; t0: number; ph: number; size: number; c: number }[];
+};
+
+const balloonFiesta: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+
+  fillBg(ctx, w, h, shade(bg0, -0.05), bg1);
+
+  const st = canvasState<BalloonState>(ctx, `balloon${p.seed}|${p.density}`, () => ({
+    wind: 0,
+    windY: 0,
+    released: [],
+  }));
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+
+  if (env) {
+    // smoothed wind from horizontal pointer velocity
+    const target = clamp(env.pointer.vx, -1.6, 1.6);
+    st.wind = lerp(st.wind, target, 1 - Math.exp(-dt * 2.2));
+    st.windY = lerp(st.windY, clamp(env.pointer.vy, -1.2, 1.2), 1 - Math.exp(-dt * 2.2));
+    for (const tap of env.pointer.taps) {
+      st.released.push({
+        x: tap.x * w,
+        t0: t,
+        ph: rnd() * TAU,
+        size: 0.7 + rnd() * 0.55,
+        c: 2 + Math.floor(rnd() * 3),
+      });
+    }
+    if (st.released.length > 14) st.released.splice(0, st.released.length - 14);
+  }
+  st.released = st.released.filter((b) => t - b.t0 < 9);
+
+  // low sun glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.72, h * 0.26, m * 0.42, a3, 0.16 + p.glow * 0.1);
+  softOrb(ctx, w * 0.2, h * 0.18, m * 0.3, a1, 0.08 + p.glow * 0.06);
+  ctx.restore();
+
+  // drifting clouds — soft ellipses, wind-reactive
+  const cloudN = Math.round(clamp(5 * p.density, 3, 8));
+  for (let i = 0; i < cloudN; i++) {
+    const depth = 0.35 + rnd() * 0.65;
+    const drift = ((t * 8 * sp * depth + st.wind * 40 * depth) % (w + m * 0.6)) - m * 0.3;
+    const cx = i % 2 === 0 ? drift : w - drift;
+    const cy = h * (0.08 + rnd() * 0.3);
+    ctx.save();
+    ctx.globalAlpha = 0.16 + depth * 0.12;
+    ctx.fillStyle = rgba("#ffffff", 0.8);
+    for (const [ox, oy, r] of [[0, 0, 1], [0.8, 0.18, 0.7], [-0.75, 0.2, 0.62]] as const) {
+      ctx.beginPath();
+      ctx.ellipse(cx + ox * m * 0.09 * depth, cy + oy * m * 0.05, r * m * 0.075 * depth, r * m * 0.032 * depth, 0, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** draws one balloon, origin = envelope center */
+  const drawBalloon = (bx: number, by: number, size: number, cIdx: number, tilt: number, fade: number) => {
+    const bw = m * 0.052 * size;
+    const bh = m * 0.068 * size;
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(tilt);
+    ctx.globalAlpha = fade;
+
+    // envelope — teardrop with vertical stripes
+    const env1 = new Path2D();
+    env1.moveTo(0, -bh);
+    env1.bezierCurveTo(bw * 1.25, -bh * 0.72, bw, bh * 0.5, bw * 0.24, bh * 0.82);
+    env1.lineTo(-bw * 0.24, bh * 0.82);
+    env1.bezierCurveTo(-bw, bh * 0.5, -bw * 1.25, -bh * 0.72, 0, -bh);
+    env1.closePath();
+    const base = p.colors[cIdx];
+    const grad = ctx.createLinearGradient(-bw, 0, bw, 0);
+    grad.addColorStop(0, rgba(shade(base, -0.28), 0.96));
+    grad.addColorStop(0.45, rgba(base, 0.98));
+    grad.addColorStop(1, rgba(shade(base, 0.18), 0.96));
+    ctx.fillStyle = grad;
+    ctx.fill(env1);
+
+    // stripes
+    ctx.save();
+    ctx.clip(env1);
+    ctx.fillStyle = rgba(shade(base, -0.45), 0.55);
+    ctx.beginPath();
+    ctx.ellipse(-bw * 0.55, -bh * 0.1, bw * 0.2, bh * 0.85, 0, 0, TAU);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(bw * 0.55, -bh * 0.1, bw * 0.2, bh * 0.85, 0, 0, TAU);
+    ctx.fill();
+    // sheen
+    ctx.fillStyle = rgba("#ffffff", 0.22);
+    ctx.beginPath();
+    ctx.ellipse(-bw * 0.3, -bh * 0.35, bw * 0.16, bh * 0.3, -0.3, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    // ropes + basket
+    ctx.strokeStyle = rgba(shade(a3, -0.4), 0.7);
+    ctx.lineWidth = Math.max(0.7, m * 0.0022);
+    ctx.beginPath();
+    ctx.moveTo(-bw * 0.2, bh * 0.8);
+    ctx.lineTo(-bw * 0.13, bh * 1.08);
+    ctx.moveTo(bw * 0.2, bh * 0.8);
+    ctx.lineTo(bw * 0.13, bh * 1.08);
+    ctx.stroke();
+    ctx.fillStyle = rgba(shade(a3, -0.25), 0.9);
+    const kW = bw * 0.3;
+    const kH = bh * 0.24;
+    ctx.beginPath();
+    ctx.roundRect(-kW / 2, bh * 1.06, kW, kH, kH * 0.25);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  // ambient balloon fleet
+  const count = Math.round(clamp(7 * p.density * areaScale(w, h), 4, 13));
+  for (let i = 0; i < count; i++) {
+    const depth = 0.45 + rnd() * 0.55;
+    const travel = h + m * 0.5;
+    const cycle = 26 / sp;
+    const y = h + m * 0.25 - (((t * depth + (rnd() * 26) / sp) % cycle) / cycle) * travel;
+    const sway = Math.sin(t * 0.5 * sp * depth + rnd() * TAU) * m * 0.03 * depth;
+    const bx = (0.06 + rnd() * 0.88) * w + sway + st.wind * 46 * depth;
+    const cIdx = 2 + (i % 3);
+    drawBalloon(bx, y, 0.55 + depth * 0.75, cIdx, st.wind * 0.12 * depth, 0.55 + depth * 0.45);
+  }
+
+  // tap-released balloons rising from below
+  for (const b of st.released) {
+    const age = t - b.t0;
+    const y = h + m * 0.1 - age * m * 0.09 * sp;
+    if (y < -m * 0.2) continue;
+    const sway = Math.sin(t * 1.1 + b.ph) * m * 0.022 + st.wind * 26;
+    drawBalloon(b.x + sway, y, b.size, b.c, st.wind * 0.16 + Math.sin(t * 0.9 + b.ph) * 0.05, 0.95);
+  }
+
+  // rolling hills
+  for (const [yBase, amp, col, alpha] of [
+    [0.86, 0.045, a3, 0.32],
+    [0.93, 0.03, shade(bg0, -0.35), 0.85],
+  ] as const) {
+    ctx.fillStyle = rgba(col, alpha);
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let x = 0; x <= w; x += Math.max(6, w / 40)) {
+      ctx.lineTo(x, h * yBase - Math.sin(x * 0.006 + p.seed * 0.01) * h * amp - Math.sin(x * 0.017 + 2) * h * amp * 0.4);
+    }
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* 32 · Meteor Shower — tap calls a bolide out of the night            */
+/* ------------------------------------------------------------------ */
+
+type MeteorState = {
+  bolides: { x: number; y: number; t0: number; ang: number; sp: number; big: boolean }[];
+  flash: number;
+};
+
+const meteorShower: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, shade(bg0, -0.2), bg1);
+
+  const st = canvasState<MeteorState>(ctx, `meteor${p.seed}|${p.density}`, () => ({
+    bolides: [],
+    flash: 0,
+  }));
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  st.flash *= Math.exp(-dt * 3.4);
+
+  // starfield
+  const rnd = mulberry32(p.seed);
+  const starN = Math.round(clamp(90 * p.density * areaScale(w, h), 50, 220));
+  ctx.save();
+  for (let i = 0; i < starN; i++) {
+    const sx = rnd() * w;
+    const sy = rnd() * h;
+    const tw = 0.35 + 0.65 * Math.abs(Math.sin(t * (0.6 + rnd() * 1.6) * sp + rnd() * TAU));
+    ctx.fillStyle = rgba(i % 9 === 0 ? a3 : "#ffffff", 0.16 + tw * 0.5);
+    const r = rnd() < 0.08 ? m * 0.0022 : m * 0.0011;
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // milky-way band
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const band = ctx.createLinearGradient(0, h * 0.15, w, h * 0.55);
+  band.addColorStop(0, rgba(a1, 0));
+  band.addColorStop(0.5, rgba(a1, 0.05 + p.glow * 0.04));
+  band.addColorStop(1, rgba(a1, 0));
+  ctx.fillStyle = band;
+  ctx.save();
+  ctx.translate(w * 0.5, h * 0.35);
+  ctx.rotate(-0.32);
+  ctx.translate(-w * 0.5, -h * 0.35);
+  ctx.fillRect(-w * 0.1, 0, w * 1.2, h * 0.7);
+  ctx.restore();
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.bolides.push({
+        x: tap.x * w,
+        y: tap.y * h,
+        t0: t,
+        ang: 0.55 + rnd() * 0.35,
+        sp: 1.5 + rnd() * 0.6,
+        big: true,
+      });
+      st.flash = Math.min(1, st.flash + 0.5);
+      if (st.bolides.length > 8) st.bolides.shift();
+    }
+  }
+
+  const ptr = pointerPx(env, w, h);
+
+  /** one streaked meteor; head at (x,y), flying along ang */
+  const drawMeteor = (x: number, y: number, ang: number, len: number, wd: number, col: string, alpha: number) => {
+    const dx = Math.cos(ang);
+    const dy = Math.sin(ang);
+    const tail = ctx.createLinearGradient(x, y, x - dx * len, y - dy * len);
+    tail.addColorStop(0, rgba(col, alpha));
+    tail.addColorStop(0.35, rgba(col, alpha * 0.45));
+    tail.addColorStop(1, rgba(col, 0));
+    ctx.strokeStyle = tail;
+    ctx.lineCap = "round";
+    ctx.lineWidth = wd;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x - dx * len, y - dy * len);
+    ctx.stroke();
+    // hot head
+    ctx.fillStyle = rgba("#ffffff", alpha);
+    ctx.beginPath();
+    ctx.arc(x, y, wd * 0.8, 0, TAU);
+    ctx.fill();
+    softOrb(ctx, x, y, wd * 5, col, alpha * 0.5);
+  };
+
+  // ambient meteors — diagonal rain with pointer gravity bend
+  const count = Math.round(clamp(6 * p.density, 3, 12));
+  const loop = 30 / sp;
+  for (let i = 0; i < count; i++) {
+    const phase = (t / loop + rnd()) % 1;
+    const depth = 0.5 + rnd() * 0.5;
+    const ang = (0.42 + rnd() * 0.4) * (i % 5 === 0 ? -1 : 1);
+    const startX = rnd() * w * 1.2 - w * 0.1;
+    const startY = -m * 0.1 + rnd() * h * 0.25;
+    let x = startX + Math.cos(ang) * phase * w * 1.35 * depth;
+    let y = startY + Math.sin(ang) * phase * h * 1.35 * depth;
+    // pointer bends trajectories slightly toward the cursor
+    if (ptr) {
+      const d = Math.hypot(ptr.x - x, ptr.y - y);
+      const R = m * 0.5;
+      if (d < R && d > 1) {
+        const f = (1 - d / R) * m * 0.06;
+        x += ((ptr.x - x) / d) * f;
+        y += ((ptr.y - y) / d) * f;
+      }
+    }
+    const len = m * (0.1 + depth * 0.14);
+    drawMeteor(x, y, ang, len, Math.max(1, m * 0.0035 * depth), i % 3 === 0 ? a3 : i % 3 === 1 ? a2 : "#ffffff", 0.5 + depth * 0.4);
+  }
+
+  // tap bolides — big, fast, with sparks + flash
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  st.bolides = st.bolides.filter((b) => t - b.t0 < 2.2);
+  for (const b of st.bolides) {
+    const age = t - b.t0;
+    const dist = age * b.sp * m * 0.75;
+    const x = b.x + Math.cos(b.ang) * dist;
+    const y = b.y + Math.sin(b.ang) * dist;
+    const fade = Math.max(0, 1 - age / 2.2);
+    drawMeteor(x, y, b.ang, m * 0.34, m * 0.011, a3, fade);
+    // sparks flying off the head
+    for (let s = 0; s < 5; s++) {
+      const sa = b.ang + Math.PI + (s - 2) * 0.35;
+      const sd = m * 0.05 * Math.abs(Math.sin(age * 9 + s * 1.7));
+      glowDot(ctx, x + Math.cos(sa) * sd, y + Math.sin(sa) * sd, m * 0.0035, a2, 6 * p.glow, fade);
+    }
+  }
+
+  // summon flash
+  if (st.flash > 0.01) {
+    ctx.fillStyle = rgba("#ffffff", st.flash * 0.22);
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.restore();
+
+  // horizon ridge for depth
+  ctx.fillStyle = rgba(shade(bg0, -0.4), 0.9);
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  for (let x = 0; x <= w; x += Math.max(6, w / 30)) {
+    ctx.lineTo(x, h * 0.94 - Math.abs(Math.sin(x * 0.004 + p.seed)) * h * 0.05);
+  }
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fill();
+};
+
+/* ------------------------------------------------------------------ */
+/* 33 · Koi Pond — top-down koi that dart away from your finger        */
+/* ------------------------------------------------------------------ */
+
+type Koi = {
+  hx: number; hy: number; // home (normalized)
+  x: number; y: number; // current px
+  ang: number;
+  vx: number; vy: number;
+  panic: number;
+  ph: number;
+  size: number;
+  c: number;
+};
+
+type KoiState = { koi: Koi[]; ripples: { x: number; y: number; t0: number }[]; init: boolean };
+
+const koiPond: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+  fillBg(ctx, w, h, shade(bg0, -0.1), bg1);
+
+  const st = canvasState<KoiState>(ctx, `koi${p.seed}|${p.density}|${Math.round(w)}x${Math.round(h)}`, () => {
+    const koi: Koi[] = [];
+    const n = Math.round(clamp(7 * p.density * areaScale(w, h), 4, 14));
+    for (let i = 0; i < n; i++) {
+      const hx = 0.12 + rnd() * 0.76;
+      const hy = 0.12 + rnd() * 0.76;
+      koi.push({
+        hx, hy,
+        x: hx * w, y: hy * h,
+        ang: rnd() * TAU,
+        vx: 0, vy: 0,
+        panic: 0,
+        ph: rnd() * TAU,
+        size: 0.6 + rnd() * 0.7,
+        c: 2 + Math.floor(rnd() * 3),
+      });
+    }
+    return { koi, ripples: [], init: true };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.ripples.push({ x: tap.x * w, y: tap.y * h, t0: t });
+      if (st.ripples.length > 10) st.ripples.shift();
+      // startle nearby koi
+      for (const k of st.koi) {
+        const d = Math.hypot(k.x - tap.x * w, k.y - tap.y * h);
+        const R = m * 0.34;
+        if (d < R && d > 0.001) {
+          const f = (1 - d / R) * m * 1.6;
+          k.vx += ((k.x - tap.x * w) / d) * f;
+          k.vy += ((k.y - tap.y * h) / d) * f;
+          k.panic = 1;
+        }
+      }
+    }
+  }
+
+  // water caustics — slow shifting light bands
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 3; i++) {
+    const cy = h * (0.25 + 0.25 * i) + Math.sin(t * 0.22 * sp + i * 2.1) * h * 0.06;
+    const g = ctx.createLinearGradient(0, cy - m * 0.09, 0, cy + m * 0.09);
+    g.addColorStop(0, rgba(a1, 0));
+    g.addColorStop(0.5, rgba(a1, 0.05 + p.glow * 0.035));
+    g.addColorStop(1, rgba(a1, 0));
+    ctx.fillStyle = g;
+    ctx.save();
+    ctx.translate(w * 0.5, cy);
+    ctx.rotate(i * 1.1 + 0.4);
+    ctx.translate(-w * 0.5, -cy);
+    ctx.fillRect(-w * 0.05, cy - m * 0.09, w * 1.1, m * 0.18);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // lily pads — circles with a notch, gentle bob
+  const padN = Math.round(clamp(4 * p.density, 2, 7));
+  const padRnd = mulberry32(p.seed + 11);
+  for (let i = 0; i < padN; i++) {
+    const px = padRnd() * w;
+    const py = padRnd() * h;
+    const pr = m * (0.045 + padRnd() * 0.05);
+    const bob = Math.sin(t * 0.5 * sp + i * 1.9) * m * 0.004;
+    const rot = padRnd() * TAU + Math.sin(t * 0.2 + i) * 0.05;
+    ctx.save();
+    ctx.translate(px, py + bob);
+    ctx.rotate(rot);
+    ctx.fillStyle = rgba(shade(a3, -0.5), 0.85);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, pr, 0.32, TAU - 0.32);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = rgba(shade(a3, -0.62), 0.9);
+    ctx.lineWidth = Math.max(0.8, pr * 0.06);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(0.32) * pr, Math.sin(0.32) * pr);
+    ctx.stroke();
+    // vein hint
+    ctx.strokeStyle = rgba(shade(a3, -0.35), 0.4);
+    ctx.lineWidth = Math.max(0.6, pr * 0.03);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(2.4) * pr * 0.85, Math.sin(2.4) * pr * 0.85);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // tap ripples — expanding rings
+  ctx.save();
+  st.ripples = st.ripples.filter((r) => t - r.t0 < 1.6);
+  for (const r of st.ripples) {
+    const age = (t - r.t0) / 1.6;
+    for (let ring = 0; ring < 2; ring++) {
+      const rr = (age + ring * 0.18) * m * 0.3;
+      if (rr <= 0) continue;
+      ctx.strokeStyle = rgba("#ffffff", Math.max(0, (1 - age) * 0.4 - ring * 0.12));
+      ctx.lineWidth = Math.max(1, m * 0.004 * (1 - age));
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, rr, 0, TAU);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // koi — wander, flee the pointer, undulate
+  for (const k of st.koi) {
+    // wander force from layered sines
+    const wx = Math.sin(t * 0.35 * sp + k.ph * 2.3) * m * 0.5;
+    const wy = Math.cos(t * 0.28 * sp + k.ph * 1.7) * m * 0.5;
+    const homeX = k.hx * w;
+    const homeY = k.hy * h;
+    k.vx += ((homeX + wx) - k.x) * dt * 0.5;
+    k.vy += ((homeY + wy) - k.y) * dt * 0.5;
+
+    // flee the pointer
+    if (ptr) {
+      const dx = k.x - ptr.x;
+      const dy = k.y - ptr.y;
+      const d = Math.hypot(dx, dy);
+      const R = m * 0.3;
+      if (d < R && d > 0.001) {
+        const f = (1 - d / R) * (ptr.down ? 2.6 : 1.3);
+        k.vx += (dx / d) * f * m * dt * 3.2;
+        k.vy += (dy / d) * f * m * dt * 3.2;
+        k.panic = Math.min(1, k.panic + dt * 3);
+      }
+    }
+
+    // soft wall repulsion
+    const wall = m * 0.08;
+    if (k.x < wall) k.vx += (wall - k.x) * dt * 4;
+    if (k.x > w - wall) k.vx -= (k.x - (w - wall)) * dt * 4;
+    if (k.y < wall) k.vy += (wall - k.y) * dt * 4;
+    if (k.y > h - wall) k.vy -= (k.y - (h - wall)) * dt * 4;
+
+    const fr = Math.exp(-dt * (k.panic > 0.1 ? 1.1 : 1.9));
+    k.vx *= fr;
+    k.vy *= fr;
+    k.x += k.vx * dt;
+    k.y += k.vy * dt;
+    k.panic *= Math.exp(-dt * 1.2);
+
+    // heading follows velocity
+    const speed = Math.hypot(k.vx, k.vy);
+    if (speed > m * 0.008) {
+      const targetAng = Math.atan2(k.vy, k.vx);
+      let da = targetAng - k.ang;
+      while (da > Math.PI) da -= TAU;
+      while (da < -Math.PI) da += TAU;
+      k.ang += da * Math.min(1, dt * 6);
+    }
+
+    // draw — tapered undulating body
+    const size = m * 0.052 * k.size;
+    const und = Math.sin(t * (4 + speed / m * 6) * sp + k.ph) * size * (0.24 + k.panic * 0.3);
+    const cols = [size * 1.05, size * 0.78, size * 0.52, size * 0.3, size * 0.14];
+    ctx.save();
+    ctx.translate(k.x, k.y);
+    ctx.rotate(k.ang);
+    const bodyCol = p.colors[k.c];
+    // tail first (behind body)
+    ctx.strokeStyle = rgba(shade(bodyCol, -0.2), 0.75);
+    ctx.lineCap = "round";
+    ctx.lineWidth = size * 0.14;
+    ctx.beginPath();
+    ctx.moveTo(-size * 1.1, und * 0.4);
+    ctx.quadraticCurveTo(-size * 1.55, und * 1.2, -size * 1.9, und * 2.1);
+    ctx.stroke();
+    // body segments
+    for (let s = 0; s < cols.length; s++) {
+      const bx = -s * size * 0.42;
+      const by = und * Math.sin((s / cols.length) * Math.PI) * 1.6 * (s === 0 ? 0.2 : 1);
+      ctx.fillStyle = rgba(s === 0 ? shade(bodyCol, 0.1) : bodyCol, 0.95 - s * 0.06);
+      ctx.beginPath();
+      ctx.ellipse(bx, by, cols[s] * 0.62, cols[s], 0, 0, TAU);
+      ctx.fill();
+    }
+    // pattern patch
+    ctx.fillStyle = rgba(shade(bodyCol, -0.55), 0.6);
+    ctx.beginPath();
+    ctx.ellipse(-size * 0.55, und * 0.7, size * 0.3, size * 0.42, 0.4, 0, TAU);
+    ctx.fill();
+    // pectoral fins
+    ctx.fillStyle = rgba(shade(bodyCol, 0.22), 0.55);
+    const fin = size * 0.5;
+    ctx.beginPath();
+    ctx.ellipse(size * 0.16, size * 0.72, fin * 0.55, fin * 0.26, 0.7 + und * 0.02, 0, TAU);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(size * 0.16, -size * 0.72, fin * 0.55, fin * 0.26, -0.7 - und * 0.02, 0, TAU);
+    ctx.fill();
+    // eyes + highlight
+    ctx.fillStyle = rgba("#111111", 0.85);
+    ctx.beginPath();
+    ctx.arc(size * 0.4, size * 0.3, size * 0.07, 0, TAU);
+    ctx.arc(size * 0.4, -size * 0.3, size * 0.07, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = rgba("#ffffff", 0.3);
+    ctx.beginPath();
+    ctx.ellipse(size * 0.3, -size * 0.14, size * 0.3, size * 0.14, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // surface vignette
+  const vg = ctx.createRadialGradient(w / 2, h / 2, m * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.42));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 34 · Vinyl Lounge — sweep scratches the record, tap drops the needle */
+/* ------------------------------------------------------------------ */
+
+type VinylState = { scratch: number; drops: { t0: number }[]; wobble: number };
+
+const vinylLounge: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, shade(bg0, -0.12), bg1);
+
+  const st = canvasState<VinylState>(ctx, `vinyl${p.seed}|${p.density}`, () => ({
+    scratch: 0,
+    drops: [],
+    wobble: 0,
+  }));
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  const cx = w * 0.5;
+  const cy = h * 0.46;
+  const R = m * 0.36;
+
+  if (env) {
+    // scratching — horizontal sweeps over the record
+    if (ptr && ptr.inside && Math.hypot(ptr.x - cx, ptr.y - cy) < R * 1.15) {
+      st.scratch = clamp(st.scratch + env.pointer.vx * 2.6, -14, 14);
+      st.wobble = clamp(st.wobble + Math.abs(env.pointer.vx) * 0.5, 0, 1);
+    }
+    for (let ti = 0; ti < env.pointer.taps.length; ti++) {
+      st.drops.push({ t0: t });
+      if (st.drops.length > 5) st.drops.shift();
+      st.wobble = Math.min(1, st.wobble + 0.6);
+    }
+  }
+  st.scratch *= Math.exp(-dt * 1.6);
+  st.wobble *= Math.exp(-dt * 2.4);
+  st.drops = st.drops.filter((d) => t - d.t0 < 2.4);
+
+  const spin = t * 0.9 * sp + st.scratch;
+  const wob = Math.sin(t * 34) * st.wobble * 0.006;
+
+  // warm lamp glow + shelf vibe
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.2, h * 0.08, m * 0.4, a2, 0.1 + p.glow * 0.08);
+  softOrb(ctx, w * 0.85, h * 0.1, m * 0.3, a3, 0.07 + p.glow * 0.05);
+  ctx.restore();
+
+  // dust motes drifting in the lamplight
+  const moteN = Math.round(clamp(26 * p.density * areaScale(w, h), 14, 60));
+  const mr = mulberry32(p.seed + 3);
+  ctx.save();
+  for (let i = 0; i < moteN; i++) {
+    const mx = mr() * w + Math.sin(t * 0.3 * sp + mr() * TAU) * m * 0.02;
+    const my = ((mr() * h + t * (4 + mr() * 8) * sp) % (h + m * 0.1)) - m * 0.05;
+    const a = 0.06 + 0.12 * Math.abs(Math.sin(t * (0.8 + mr()) + i));
+    ctx.fillStyle = rgba(a3, a);
+    ctx.beginPath();
+    ctx.arc(mx, h - my, m * 0.0016, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // record — vinyl disc with grooves
+  ctx.save();
+  ctx.translate(cx + wob * m, cy);
+  ctx.rotate(spin * 0.15);
+
+  // disc base
+  const discG = ctx.createRadialGradient(0, 0, R * 0.1, 0, 0, R);
+  discG.addColorStop(0, "#181614");
+  discG.addColorStop(0.82, "#111010");
+  discG.addColorStop(0.88, "#1c1a18");
+  discG.addColorStop(1, "#0c0b0b");
+  ctx.fillStyle = discG;
+  ctx.beginPath();
+  ctx.arc(0, 0, R, 0, TAU);
+  ctx.fill();
+
+  // grooves
+  const grooveN = 26;
+  for (let g = 0; g < grooveN; g++) {
+    const gr = R * (0.34 + (g / grooveN) * 0.62);
+    ctx.strokeStyle = rgba("#ffffff", g % 4 === 0 ? 0.05 : 0.028);
+    ctx.lineWidth = Math.max(0.6, R * 0.004);
+    ctx.beginPath();
+    ctx.arc(0, 0, gr, 0, TAU);
+    ctx.stroke();
+  }
+
+  // rotating sheen wedge — the vinyl shine
+  const sheenA0 = 0.5 + Math.sin(t * 0.4 * sp) * 0.3;
+  const sheen = ctx.createConicGradient?.(sheenA0, 0, 0);
+  if (sheen) {
+    sheen.addColorStop(0, rgba("#ffffff", 0));
+    sheen.addColorStop(0.08, rgba("#ffffff", 0.09 + p.glow * 0.05));
+    sheen.addColorStop(0.16, rgba("#ffffff", 0));
+    sheen.addColorStop(0.55, rgba("#ffffff", 0));
+    sheen.addColorStop(0.63, rgba("#ffffff", 0.06 + p.glow * 0.04));
+    sheen.addColorStop(0.71, rgba("#ffffff", 0));
+    sheen.addColorStop(1, rgba("#ffffff", 0));
+    ctx.fillStyle = sheen;
+    ctx.beginPath();
+    ctx.arc(0, 0, R, 0, TAU);
+    ctx.fill();
+  }
+
+  // label
+  const labelR = R * 0.3;
+  const labelG = ctx.createRadialGradient(0, 0, 0, 0, 0, labelR);
+  labelG.addColorStop(0, rgba(a1, 1));
+  labelG.addColorStop(1, rgba(shade(a1, -0.3), 1));
+  ctx.fillStyle = labelG;
+  ctx.beginPath();
+  ctx.arc(0, 0, labelR, 0, TAU);
+  ctx.fill();
+  // label ring text dots
+  ctx.strokeStyle = rgba("#ffffff", 0.28);
+  ctx.lineWidth = Math.max(1, R * 0.006);
+  ctx.beginPath();
+  ctx.arc(0, 0, labelR * 0.78, 0, TAU);
+  ctx.stroke();
+  // spindle
+  ctx.fillStyle = "#0a0a0a";
+  ctx.beginPath();
+  ctx.arc(0, 0, R * 0.028, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = rgba(a3, 0.9);
+  ctx.beginPath();
+  ctx.arc(0, 0, R * 0.014, 0, TAU);
+  ctx.fill();
+
+  // needle-drop pulses — sound rings from the label
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const d of st.drops) {
+    const age = (t - d.t0) / 2.4;
+    for (let ring = 0; ring < 3; ring++) {
+      const rr = ((age + ring * 0.14) % 1) * R * 1.5;
+      const a = Math.max(0, (1 - age) * 0.5 - ring * 0.1);
+      if (a <= 0.004 || rr < labelR) continue;
+      ctx.strokeStyle = rgba(a2, a);
+      ctx.lineWidth = Math.max(1, R * 0.012 * (1 - age));
+      ctx.beginPath();
+      ctx.arc(0, 0, rr, 0, TAU);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+  ctx.restore();
+
+  // tonearm — pivots from the top-right, reaches onto the record
+  ctx.save();
+  const pivotX = cx + R * 1.18;
+  const pivotY = cy - R * 1.05;
+  const armLen = R * 1.34;
+  const armAng = Math.PI * 0.72 + Math.sin(t * 0.11 * sp) * 0.045 + st.wobble * 0.06;
+  ctx.strokeStyle = rgba("#d6d3d1", 0.85);
+  ctx.lineCap = "round";
+  ctx.lineWidth = Math.max(2, m * 0.007);
+  ctx.beginPath();
+  ctx.moveTo(pivotX, pivotY);
+  ctx.lineTo(pivotX + Math.cos(armAng) * armLen, pivotY + Math.sin(armAng) * armLen);
+  ctx.stroke();
+  // headshell
+  const hx2 = pivotX + Math.cos(armAng) * armLen;
+  const hy2 = pivotY + Math.sin(armAng) * armLen;
+  ctx.fillStyle = rgba(a2, 0.95);
+  ctx.beginPath();
+  ctx.roundRect(hx2 - m * 0.016, hy2 - m * 0.01, m * 0.032, m * 0.02, m * 0.005);
+  ctx.fill();
+  // pivot base
+  ctx.fillStyle = rgba("#d6d3d1", 0.9);
+  ctx.beginPath();
+  ctx.arc(pivotX, pivotY, m * 0.016, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = rgba("#57534e", 0.9);
+  ctx.beginPath();
+  ctx.arc(pivotX, pivotY, m * 0.008, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  // music notes float up on needle drops
+  ctx.save();
+  ctx.font = `${Math.round(m * 0.05)}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  for (const d of st.drops) {
+    const age = t - d.t0;
+    if (age > 2) continue;
+    const notePh = age * 2.2;
+    for (let nn = 0; nn < 3; nn++) {
+      const nx = cx + Math.sin(age * 2 + nn * 2.4) * R * 0.5;
+      const ny = cy - R * 0.4 - notePh * m * 0.16 - nn * m * 0.05;
+      const a = Math.max(0, (1 - age / 2) * 0.7);
+      ctx.fillStyle = rgba(a3, a);
+      ctx.fillText(nn % 2 ? "♪" : "♫", nx, ny);
+    }
+  }
+  ctx.restore();
+
+  // bottom shelf shadow
+  const shelf = ctx.createLinearGradient(0, h * 0.88, 0, h);
+  shelf.addColorStop(0, rgba("#000000", 0));
+  shelf.addColorStop(1, rgba("#000000", 0.55));
+  ctx.fillStyle = shelf;
+  ctx.fillRect(0, h * 0.88, w, h * 0.12);
+};
+
+/* ------------------------------------------------------------------ */
 /* registry                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -2728,4 +3504,8 @@ export const INTERACTIVE_ENGINES = {
   glassMarbles,
   silkFlow,
   emberForge,
+  balloonFiesta,
+  meteorShower,
+  koiPond,
+  vinylLounge,
 } as const;

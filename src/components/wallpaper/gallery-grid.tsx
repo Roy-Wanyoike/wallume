@@ -46,6 +46,77 @@ const CATEGORY_EMOJI: Record<string, string> = {
   Geometric: "🔷",
 };
 
+/* Curated collections — cross-category moods you can filter the grid by */
+type Collection = {
+  id: string;
+  emoji: string;
+  name: string;
+  blurb: string;
+  match: (wp: WallpaperDef) => boolean;
+};
+
+const COLLECTIONS: Collection[] = [
+  {
+    id: "midnight",
+    emoji: "🌙",
+    name: "Midnight Vibes",
+    blurb: "Dark skies, moons & quiet glow",
+    match: (wp) =>
+      (wp.tags ?? []).some((t) => ["night", "midnight", "moon", "dark"].includes(t)) ||
+      /night|moon|midnight|nocturn/i.test(wp.name),
+  },
+  {
+    id: "oceanic",
+    emoji: "🐚",
+    name: "Oceanic",
+    blurb: "Water worlds & living reefs",
+    match: (wp) =>
+      wp.category === "Ocean" ||
+      /pond|tide|wave|tide|rain|bubble/i.test(wp.name) ||
+      (wp.tags ?? []).some((t) => ["fish", "koi", "pond", "water"].includes(t)),
+  },
+  {
+    id: "energy",
+    emoji: "⚡",
+    name: "High Energy",
+    blurb: "Scenes that love your taps",
+    match: (wp) =>
+      ["strike", "warp", "spawn", "glow", "magnet", "swirl"].includes(wp.interact?.kind ?? "") ||
+      /firework|storm|warp|plasma|forge|kaleido/i.test(wp.name),
+  },
+  {
+    id: "zen",
+    emoji: "🧘",
+    name: "Zen & Calm",
+    blurb: "Slow motion for quiet minds",
+    match: (wp) =>
+      /zen|calm|quiet|slow|gentle|koi|pond|jelly|lava|lantern|whisper|drift|silk/i.test(wp.name) ||
+      (wp.tags ?? []).some((t) => ["zen", "calm", "meditation"].includes(t)),
+  },
+  {
+    id: "citylights",
+    emoji: "🌆",
+    name: "City Lights",
+    blurb: "Neon streets & urban nights",
+    match: (wp) =>
+      wp.category === "Urban" || /neon|city|street|jukebox|club/i.test(wp.name),
+  },
+  {
+    id: "playground",
+    emoji: "👆",
+    name: "Touch Playground",
+    blurb: "Every scene answers your finger",
+    match: (wp) => wp.interact !== undefined && wp.interact.kind !== "parallax",
+  },
+];
+
+function collectionArt(list: WallpaperDef[]): [string, string, string] {
+  // representative accent colors for the rail card gradient
+  const wp = list.find((w) => (w.tags ?? []).includes("new")) ?? list[0];
+  const c = wp?.palettes[0].colors ?? ["#1a1a22", "#2a1a2e", "#f472b6", "#fb923c", "#fde047"];
+  return [c[1], c[2], c[3]];
+}
+
 type Props = {
   selectedId: string;
   stats: StatsMap;
@@ -59,6 +130,7 @@ type Props = {
 export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFavorite, onSelect, onToggleLike }: Props) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<WallpaperCategory | "All" | "Favorites">("All");
+  const [collection, setCollection] = useState<string | null>(null);
   const [sort, setSort] = useState<SortMode>("trending");
   const [limit, setLimit] = useState(PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -74,7 +146,9 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const coll = COLLECTIONS.find((c) => c.id === collection);
     let list = WALLPAPERS.filter((wp) => {
+      if (coll && !coll.match(wp)) return false;
       if (category === "Favorites") {
         if (!favorites.includes(wp.id)) return false;
       } else if (category !== "All" && wp.category !== category) return false;
@@ -106,11 +180,11 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
         break;
     }
     return list;
-  }, [query, category, sort, stats, favorites]);
+  }, [query, category, sort, stats, favorites, collection]);
 
   // reset pagination whenever filters change (state-adjust-during-render)
   const [prevFilterKey, setPrevFilterKey] = useState("");
-  const filterKey = `${query}|${category}|${sort}`;
+  const filterKey = `${query}|${category}|${sort}|${collection ?? ""}`;
   if (filterKey !== prevFilterKey) {
     setPrevFilterKey(filterKey);
     setLimit(PAGE_SIZE);
@@ -141,7 +215,7 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
     <section id="gallery" className="mx-auto w-full max-w-6xl scroll-mt-20 px-4">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+          <h2 className="section-accent section-accent-left flex items-center gap-2 text-2xl font-bold tracking-tight">
             <Sparkles className="h-5 w-5 text-fuchsia-400" />
             The collection
           </h2>
@@ -176,6 +250,63 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
           </Select>
         </div>
       </div>
+
+      {/* curated collections rail */}
+      <div
+        className="mb-5 flex gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        role="group"
+        aria-label="Curated collections"
+      >
+        {COLLECTIONS.map((coll) => {
+          const list = WALLPAPERS.filter(coll.match);
+          const [c0, c1, c2] = collectionArt(list);
+          const active = collection === coll.id;
+          return (
+            <button
+              key={coll.id}
+              onClick={() => setCollection(active ? null : coll.id)}
+              aria-pressed={active}
+              className={cn(
+                "group/coll relative shrink-0 overflow-hidden rounded-2xl border p-3.5 pr-5 text-left transition-all duration-300 hover:-translate-y-0.5",
+                active
+                  ? "border-white/40 shadow-lg shadow-white/10"
+                  : "border-white/10 hover:border-white/25",
+              )}
+              style={{ background: `linear-gradient(120deg, ${c0} 0%, ${c1}33 55%, ${c2}26 100%)` }}
+            >
+              <span aria-hidden className="absolute -right-3 -top-4 text-5xl opacity-20 transition-transform duration-500 group-hover/coll:scale-125 group-hover/coll:rotate-6">
+                {coll.emoji}
+              </span>
+              <span className="relative flex items-center gap-2 text-sm font-bold text-white">
+                <span aria-hidden className="text-base">{coll.emoji}</span>
+                {coll.name}
+              </span>
+              <span className="relative mt-0.5 block text-[11px] text-white/70">{coll.blurb}</span>
+              <span className="relative mt-1.5 inline-block rounded-full bg-black/35 px-2 py-0.5 text-[10px] font-semibold text-white/85 backdrop-blur">
+                {list.length} scenes
+              </span>
+              {active && (
+                <span className="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-fuchsia-400 via-rose-400 to-amber-300" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* active collection indicator */}
+      {collection && (
+        <div className="mb-4 flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="rounded-full border border-fuchsia-400/40 bg-fuchsia-500/10 px-3 py-1 text-fuchsia-200">
+            {COLLECTIONS.find((c) => c.id === collection)?.emoji} {COLLECTIONS.find((c) => c.id === collection)?.name}
+          </span>
+          <button
+            onClick={() => setCollection(null)}
+            className="underline-offset-2 hover:underline"
+          >
+            clear collection
+          </button>
+        </div>
+      )}
 
       {/* category chips */}
       <div className="mb-5 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Filter by category">
@@ -271,6 +402,7 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
 
                     <div className="absolute inset-x-0 bottom-0 p-3">
                       <div className="flex items-center gap-1.5">
+                        <span className="live-dot" title="Live animation" aria-label="Live animation" />
                         <span aria-hidden>{wp.icon}</span>
                         <h3 className="truncate text-sm font-semibold text-white">{wp.name}</h3>
                       </div>

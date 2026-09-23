@@ -5,6 +5,7 @@ import { ArrowRight, CalendarDays, Clock3, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { WallpaperCanvas } from "./wallpaper-canvas";
+import { SotdArchive } from "./sotd-archive";
 import { defaultConfig } from "@/lib/wallpapers/render";
 import { formatCountdown, getSceneOfTheDay, msUntilNextScene } from "@/lib/wallpapers/sotd";
 import type { StatsMap, WallpaperConfig, WallpaperDef } from "@/lib/wallpapers/types";
@@ -128,6 +129,11 @@ export function SceneOfTheDay({ stats, likedIds, isFavorite, onToggleLike, onLoa
             ⭐ In your favorites
           </span>
         )}
+      </div>
+
+      {/* archive of the last 14 daily picks */}
+      <div className="group/arch relative mt-4 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/50 shadow-xl">
+        <SotdArchive onLoad={onLoad} />
       </div>
     </section>
   );

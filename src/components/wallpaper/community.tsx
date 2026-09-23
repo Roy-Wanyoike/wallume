@@ -159,7 +159,7 @@ export function CommunitySection({ onRemix }: Props) {
     <section id="community" className="mx-auto w-full max-w-6xl scroll-mt-20 px-4 pt-20">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+          <h2 className="section-accent section-accent-left flex items-center gap-2 text-2xl font-bold tracking-tight">
             <Users className="h-5 w-5 text-amber-300" />
             Community wall
           </h2>
