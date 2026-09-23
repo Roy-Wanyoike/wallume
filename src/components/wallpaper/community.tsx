@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clock, ImagePlus, Loader2, Upload, Users } from "lucide-react";
+import { ImagePlus, Loader2, Upload, Users, Wand2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,8 +12,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { extractPalette } from "@/lib/wallpapers/palette-extract";
 import type { CommunityItem } from "@/lib/wallpapers/types";
 
 /** downscale + compress an uploaded image entirely on-device */
@@ -43,12 +43,17 @@ async function fileToDataUrl(file: File, maxEdge = 1080): Promise<string> {
   }
 }
 
-export function CommunitySection() {
+type Props = {
+  onRemix: (colors: string[], title: string) => void;
+};
+
+export function CommunitySection({ onRemix }: Props) {
   const [items, setItems] = useState<CommunityItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [palette, setPalette] = useState<string[] | null>(null);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -87,6 +92,13 @@ export function CommunitySection() {
     try {
       const dataUrl = await fileToDataUrl(f);
       setPreview(dataUrl);
+      // extract a remixable palette from the image — best-effort
+      try {
+        const pal = await extractPalette(dataUrl);
+        setPalette(pal);
+      } catch {
+        setPalette(null);
+      }
     } catch (e) {
       toast({
         title: "Could not process image",
@@ -95,6 +107,7 @@ export function CommunitySection() {
       });
       setFile(null);
       setPreview(null);
+      setPalette(null);
     }
   };
 
@@ -113,6 +126,7 @@ export function CommunitySection() {
           title: title.trim().slice(0, 48),
           author: (author.trim() || "Anonymous").slice(0, 24),
           image: preview,
+          ...(palette ? { palette } : {}),
         }),
       });
       if (!res.ok) {
@@ -121,11 +135,12 @@ export function CommunitySection() {
       }
       toast({
         title: "Submitted to the community wall 🎉",
-        description: "Your image is now visible to everyone — downloadable in a future update.",
+        description: "Everyone can now remix your colors into a live scene.",
       });
       setOpen(false);
       setFile(null);
       setPreview(null);
+      setPalette(null);
       setTitle("");
       setAuthor("");
       await load();
@@ -149,8 +164,9 @@ export function CommunitySection() {
             Community wall
           </h2>
           <p className="mt-1 max-w-lg text-sm text-muted-foreground">
-            Add your own images — they appear here for everyone instantly. Downloadable
-            wallpapers from the wall are <Badge className="mx-1 bg-amber-500/15 text-[10px] text-amber-300">Coming soon</Badge>
+            Add your own images — they appear here for everyone instantly. Every upload is
+            color-scanned, so anyone can hit <Wand2 className="inline h-3.5 w-3.5 text-fuchsia-300" /> Remix and
+            paint a live scene in your colors.
           </p>
         </div>
         <Button
@@ -178,7 +194,7 @@ export function CommunitySection() {
           {items.map((item) => (
             <article
               key={item.id}
-              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/60 shadow-lg"
+              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/60 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:border-white/25 hover:shadow-xl"
             >
               <div className="relative aspect-[9/16] overflow-hidden">
                 <img
@@ -188,12 +204,26 @@ export function CommunitySection() {
                   className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                 />
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/25" />
-                <Badge className="absolute right-2 top-2 gap-1 border border-amber-300/30 bg-amber-500/90 text-[10px] font-bold text-zinc-950">
-                  <Clock className="h-3 w-3" /> Coming soon
-                </Badge>
+                {item.palette && item.palette.length === 5 && (
+                  <div className="absolute left-2 top-2 flex gap-1" aria-hidden>
+                    {item.palette.slice(2).map((c, i) => (
+                      <span key={i} className="h-3 w-3 rounded-full border border-white/40 shadow" style={{ background: c }} />
+                    ))}
+                  </div>
+                )}
                 <div className="absolute inset-x-0 bottom-0 p-3">
                   <h3 className="truncate text-sm font-semibold text-white">{item.title}</h3>
                   <p className="mt-0.5 text-[11px] text-white/70">by {item.author}</p>
+                  {item.palette && item.palette.length === 5 && (
+                    <Button
+                      size="sm"
+                      onClick={() => onRemix(item.palette as string[], item.title)}
+                      className="mt-2 h-8 w-full gap-1.5 bg-gradient-to-r from-fuchsia-500 to-rose-500 text-xs font-semibold text-white opacity-100 shadow transition-all duration-300 hover:opacity-90 focus-visible:opacity-90 sm:translate-y-1 sm:opacity-0 sm:group-hover:translate-y-0 sm:group-hover:opacity-100"
+                      aria-label={`Remix ${item.title} colors in the studio`}
+                    >
+                      <Wand2 className="h-3.5 w-3.5" /> Remix in studio
+                    </Button>
+                  )}
                 </div>
               </div>
             </article>
@@ -207,8 +237,8 @@ export function CommunitySection() {
           <DialogHeader>
             <DialogTitle>Add to the community wall</DialogTitle>
             <DialogDescription>
-              Your image goes live for everyone right away. Interactive + downloadable
-              versions arrive in a future update.
+              Your image goes live for everyone right away — its colors become a remixable
+              palette for the studio.
             </DialogDescription>
           </DialogHeader>
 
@@ -237,6 +267,24 @@ export function CommunitySection() {
                 <ImagePlus className="h-5 w-5" />
                 Choose an image (PNG · JPEG · WebP)
               </button>
+            )}
+
+            {palette && palette.length === 5 && (
+              <div className="rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/[0.06] p-3">
+                <p className="flex items-center gap-1.5 text-xs font-medium text-fuchsia-200">
+                  <Wand2 className="h-3.5 w-3.5" /> Remixable palette detected
+                </p>
+                <div className="mt-2 flex gap-1.5" aria-hidden>
+                  {palette.map((c, i) => (
+                    <span
+                      key={i}
+                      className="h-6 flex-1 rounded-md border border-white/15"
+                      style={{ background: c }}
+                      title={c}
+                    />
+                  ))}
+                </div>
+              </div>
             )}
 
             <div className="space-y-1.5">

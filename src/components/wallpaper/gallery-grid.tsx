@@ -227,7 +227,7 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
               <article
                 key={wp.id}
                 className={cn(
-                  "group relative overflow-hidden rounded-2xl border bg-zinc-900/60 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl",
+                  "gallery-card-shine group relative overflow-hidden rounded-2xl border bg-zinc-900/60 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl",
                   selected ? "selected-card border-fuchsia-400/70 shadow-fuchsia-500/20" : "border-white/10 hover:border-white/25",
                 )}
               >

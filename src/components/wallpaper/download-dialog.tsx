@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { zipSync } from "fflate";
 import {
   Check,
   ClipboardCopy,
   Download,
   Film,
+  FolderArchive,
   Image as ImageIcon,
   Info,
   Loader2,
@@ -32,6 +34,8 @@ import {
   exportVideo,
   videoExportSupported,
 } from "@/lib/wallpapers/render";
+import { WALLPAPERS } from "@/lib/wallpapers/catalog";
+import { defaultConfig } from "@/lib/wallpapers/render";
 import type { DeviceMode } from "./studio";
 import type { WallpaperConfig, WallpaperDef } from "@/lib/wallpapers/types";
 import { cn } from "@/lib/utils";
@@ -53,9 +57,14 @@ export function DownloadDialog({ open, onOpenChange, def, config, device, onDown
   const [vres, setVres] = useState("hd");
   const [mode, setMode] = useState<Mode>("idle");
   const [videoMode, setVideoMode] = useState<Mode>("idle");
+  const [packMode, setPackMode] = useState<Mode>("idle");
   const [progress, setProgress] = useState(0);
+  const [packProgress, setPackProgress] = useState(0);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [packUrl, setPackUrl] = useState<string | null>(null);
+  const [packSize, setPackSize] = useState("6");
+  const [packDevice, setPackDevice] = useState<DeviceMode>(device);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -76,6 +85,7 @@ export function DownloadDialog({ open, onOpenChange, def, config, device, onDown
     setPrevDevice(device);
     setDeviceTab(device);
     setRes(device === "phone" ? "auto" : "auto-desktop");
+    setPackDevice(device);
   }
 
   const photoResolutions = RESOLUTIONS.filter((r) => r.device === deviceTab);
@@ -88,9 +98,12 @@ export function DownloadDialog({ open, onOpenChange, def, config, device, onDown
       photoBlobRef.current = null;
       setPhotoUrl(null);
       setVideoUrl(null);
+      setPackUrl(null);
       setMode("idle");
       setVideoMode("idle");
+      setPackMode("idle");
       setProgress(0);
+      setPackProgress(0);
       setError(null);
     }
     onOpenChange(v);
@@ -155,6 +168,49 @@ export function DownloadDialog({ open, onOpenChange, def, config, device, onDown
     }
   };
 
+  /** Build a surprise pack of N wallpapers as a ZIP of PNGs. */
+  const buildPack = async () => {
+    setError(null);
+    setPackMode("working");
+    setPackProgress(0);
+    try {
+      const n = Math.max(2, Math.min(12, parseInt(packSize, 10) || 6));
+      const isPhone = packDevice === "phone";
+      const W = isPhone ? 1080 : 1920;
+      const H = isPhone ? 2340 : 1080;
+
+      // deterministic-ish shuffle: current design first, then random picks
+      const pool = [...WALLPAPERS];
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      const picks = [def, ...pool.filter((p) => p.id !== def.id).slice(0, n - 1)];
+
+      const files: Record<string, [Uint8Array, { level: 0 }]> = {};
+      for (let i = 0; i < picks.length; i++) {
+        const wp = picks[i];
+        // yield to the UI thread between heavy renders
+        await new Promise((r) => setTimeout(r, 16));
+        const canvas = exportCanvas(wp, defaultConfig(wp), W, H);
+        const blob = await canvasToBlob(canvas);
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        files[`wallume-${wp.id}-${W}x${H}.png`] = [buf, { level: 0 }];
+        setPackProgress(Math.round(((i + 1) / picks.length) * 100));
+      }
+
+      const zipped = zipSync(files, { level: 0 });
+      const blob = new Blob([zipped as BlobPart], { type: "application/zip" });
+      setPackUrl(track(URL.createObjectURL(blob)));
+      setPackMode("done");
+      onDownloaded();
+    } catch (e) {
+      console.error(e);
+      setError("Could not build the pack. Try a smaller pack size.");
+      setPackMode("idle");
+    }
+  };
+
   const fileName = useMemo(() => {
     const base = `wallume-${def.id}`;
     if (!dims) return base;
@@ -175,13 +231,16 @@ export function DownloadDialog({ open, onOpenChange, def, config, device, onDown
         </DialogHeader>
 
         <Tabs defaultValue="photo" className="mt-1">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="photo" className="gap-2">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="photo" className="gap-1.5">
               <ImageIcon className="h-4 w-4" /> Photo
             </TabsTrigger>
-            <TabsTrigger value="live" className="gap-2" disabled={!canVideo}>
-              <Film className="h-4 w-4" /> Live video
+            <TabsTrigger value="live" className="gap-1.5" disabled={!canVideo}>
+              <Film className="h-4 w-4" /> Live
               {!canVideo && <Badge variant="secondary" className="ml-1 text-[10px]">N/A</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="pack" className="gap-1.5">
+              <FolderArchive className="h-4 w-4" /> Pack
             </TabsTrigger>
           </TabsList>
 
@@ -387,6 +446,97 @@ export function DownloadDialog({ open, onOpenChange, def, config, device, onDown
                   )
                 )}
               </>
+            )}
+          </TabsContent>
+
+          {/* ------------------------------ PACK ------------------------------- */}
+          <TabsContent value="pack" className="space-y-4 pt-2">
+            <p className="text-sm text-muted-foreground">
+              A surprise bundle of {WALLPAPERS.length} scenes to pick from — we render your
+              current design plus random picks into one ZIP of full-resolution PNGs.
+            </p>
+
+            {/* pack device */}
+            <div className="grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+              <button
+                onClick={() => setPackDevice("phone")}
+                aria-pressed={packDevice === "phone"}
+                className={cn(
+                  "flex h-10 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all",
+                  packDevice === "phone"
+                    ? "bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white shadow"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Smartphone className="h-4 w-4" /> Phone · 1080×2340
+              </button>
+              <button
+                onClick={() => setPackDevice("desktop")}
+                aria-pressed={packDevice === "desktop"}
+                className={cn(
+                  "flex h-10 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-all",
+                  packDevice === "desktop"
+                    ? "bg-gradient-to-r from-amber-400 to-rose-500 text-white shadow"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Monitor className="h-4 w-4" /> Desktop · 1920×1080
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Pack size</label>
+              <Select value={packSize} onValueChange={setPackSize}>
+                <SelectTrigger className="w-full" aria-label="Choose pack size">
+                  <SelectValue placeholder="How many wallpapers?" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="4">4 wallpapers · light</SelectItem>
+                  <SelectItem value="6">6 wallpapers · classic</SelectItem>
+                  <SelectItem value="8">8 wallpapers · generous</SelectItem>
+                  <SelectItem value="12">12 wallpapers · the whole mood</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {packMode !== "done" ? (
+              <div className="space-y-3">
+                <Button
+                  onClick={buildPack}
+                  disabled={packMode === "working"}
+                  className="h-12 w-full gap-2 bg-gradient-to-r from-emerald-500 via-teal-500 to-fuchsia-500 text-base font-semibold text-white shadow-lg shadow-emerald-500/20 hover:opacity-90"
+                >
+                  {packMode === "working" ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" /> Rendering pack… {packProgress}%
+                    </>
+                  ) : (
+                    <>
+                      <FolderArchive className="h-5 w-5" /> Build my pack
+                    </>
+                  )}
+                </Button>
+                {packMode === "working" && <Progress value={packProgress} className="h-2" />}
+              </div>
+            ) : (
+              packUrl && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                    <FolderArchive className="h-8 w-8 text-emerald-300" />
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-100">Your pack is ready 🎉</p>
+                      <p className="text-xs text-emerald-200/70">
+                        {packSize} wallpapers · {packDevice === "phone" ? "1080×2340" : "1920×1080"} PNGs
+                      </p>
+                    </div>
+                  </div>
+                  <a href={packUrl} download={`wallume-pack-${packSize}.zip`} className="block">
+                    <Button className="h-12 w-full gap-2 bg-gradient-to-r from-emerald-500 via-teal-500 to-fuchsia-500 text-base font-semibold text-white hover:opacity-90">
+                      <Download className="h-5 w-5" /> Download ZIP
+                    </Button>
+                  </a>
+                </div>
+              )
             )}
           </TabsContent>
         </Tabs>

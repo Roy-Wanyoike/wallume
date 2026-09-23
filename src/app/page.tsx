@@ -19,6 +19,7 @@ import type { StatsMap } from "@/lib/wallpapers/types";
 import { SiteHeader } from "@/components/wallpaper/site-header";
 import { WallumeApp } from "@/components/wallpaper/wallume-app";
 import { FadeIn, FadeInItem, FadeInStagger } from "@/components/wallpaper/fade-in";
+import { SurpriseButton } from "@/components/wallpaper/surprise-button";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +70,7 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
         </FadeIn>
         <FadeIn delay={0.16}>
           <p className="mx-auto mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-            200+ interactive scenes — fish that scatter, fireworks you can launch, lightning
+            250+ interactive scenes — fish that scatter, fireworks you can launch, lightning
             you can call. Tune palette, motion and glow in real time, then export a crisp
             high-resolution wallpaper — or a looping live video — sized exactly for your
             phone, tablet or desktop.
@@ -95,6 +96,7 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
                 <ArrowDown className="h-4 w-4" />
               </Button>
             </Link>
+            <SurpriseButton />
           </div>
         </FadeIn>
         {totalDownloads > 0 && (
@@ -200,6 +202,7 @@ function HowTo() {
                   ["S", "shuffle"],
                   ["R", "randomize"],
                   ["F", "fullscreen"],
+                  ["A", "ambient"],
                   ["D", "download"],
                 ].map(([key, label]) => (
                   <span key={key} className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5">

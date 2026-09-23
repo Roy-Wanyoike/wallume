@@ -8,6 +8,7 @@ import {
   Lock,
   Maximize2,
   Monitor,
+  MoonStar,
   Share2,
   Signal,
   Smartphone,
@@ -37,6 +38,7 @@ type Props = {
   onToggleLike: () => void;
   onOpenDownload: () => void;
   onOpenFullscreen: () => void;
+  onOpenAmbient: () => void;
   onOpenShare: () => void;
   onShuffle: () => void;
   onDefChange: (def: WallpaperDef) => void;
@@ -213,6 +215,7 @@ export function Studio({
   onToggleLike,
   onOpenDownload,
   onOpenFullscreen,
+  onOpenAmbient,
   onOpenShare,
   onShuffle,
   onDefChange,
@@ -287,6 +290,9 @@ export function Studio({
               </Button>
               <Button variant="outline" className="h-11 gap-2" onClick={onOpenShare}>
                 <Share2 className="h-4 w-4" /> Save &amp; share
+              </Button>
+              <Button variant="outline" className="h-11 gap-2" onClick={onOpenAmbient}>
+                <MoonStar className="h-4 w-4" /> Ambient
               </Button>
             </div>
 

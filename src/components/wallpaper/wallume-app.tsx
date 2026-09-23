@@ -12,13 +12,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { WALLPAPERS } from "@/lib/wallpapers/catalog";
+import { WALLPAPERS, getWallpaper } from "@/lib/wallpapers/catalog";
 import {
   configFromPreset,
   defaultConfig,
   randomConfig,
   toPresetPayload,
 } from "@/lib/wallpapers/render";
+import { fnv1a } from "@/lib/wallpapers/helpers";
 import type { StatsMap, WallpaperConfig, WallpaperDef } from "@/lib/wallpapers/types";
 import { Studio } from "./studio";
 import type { DeviceMode } from "./studio";
@@ -27,6 +28,7 @@ import { CommunitySection } from "./community";
 import { SceneOfTheDay } from "./scene-of-the-day";
 import { ScrollProgress } from "./scroll-progress";
 import { DownloadDialog } from "./download-dialog";
+import { AmbientMode } from "./ambient-mode";
 import { WallpaperCanvas } from "./wallpaper-canvas";
 import { useFavorites } from "@/hooks/use-favorites";
 
@@ -41,6 +43,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
   const [device, setDevice] = useState<DeviceMode>("phone");
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [ambient, setAmbient] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareSaving, setShareSaving] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -104,6 +107,54 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     setConfig(randomConfig(next));
     toast({ title: `${next.icon} ${next.name}`, description: next.tagline });
   }, [def.id, toast]);
+
+  /* --------------------------- community remix --------------------------- */
+
+  /** Paint a live scene with colors extracted from a community image. */
+  const remixCommunity = useCallback(
+    (colors: string[], title: string) => {
+      // deterministic engine pick from the touch-reactive families
+      const remixable = [
+        "coral-drift",
+        "nebula-storm",
+        "plasma-orbs",
+        "moon-jellies",
+        "festival-night",
+        "meadow-whimsy",
+        "warp-speed",
+        "lava-lamp",
+        "kaleidoscope",
+        "bubble-rise",
+      ];
+      const heroId = remixable[fnv1a(title) % remixable.length];
+      const remixDef = getWallpaper(heroId);
+      setDef(remixDef);
+      setConfig({
+        paletteIndex: 0,
+        customColors: colors,
+        speed: remixDef.defaults?.speed ?? 1,
+        density: remixDef.defaults?.density ?? 1,
+        glow: remixDef.defaults?.glow ?? 1,
+        seed: fnv1a(title + colors.join("")),
+      });
+      document.getElementById("studio")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      toast({
+        title: `🎨 Remixing “${title}”`,
+        description: `${remixDef.icon} ${remixDef.name} — repainted with colors from the community wall.`,
+      });
+    },
+    [toast],
+  );
+
+  /* hero “Surprise me” button talks over a custom event */
+  useEffect(() => {
+    const onSurprise = () => {
+      shuffleAll();
+      document.getElementById("studio")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    window.addEventListener("wallume:surprise", onSurprise);
+    return () => window.removeEventListener("wallume:surprise", onSurprise);
+  }, [shuffleAll]);
 
   /* ------------------------------- likes -------------------------------- */
   const toggleLike = useCallback(
@@ -254,6 +305,10 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         case "F":
           setFullscreen((v) => !v);
           break;
+        case "a":
+        case "A":
+          setAmbient((v) => !v);
+          break;
         case "d":
         case "D":
           setDownloadOpen(true);
@@ -307,6 +362,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         onToggleLike={() => toggleLike(def.id)}
         onOpenDownload={() => setDownloadOpen(true)}
         onOpenFullscreen={() => setFullscreen(true)}
+        onOpenAmbient={() => setAmbient(true)}
         onOpenShare={openShare}
         onShuffle={shuffleAll}
         onDefChange={selectDef}
@@ -328,7 +384,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         />
       </div>
 
-      <CommunitySection />
+      <CommunitySection onRemix={remixCommunity} />
 
       <DownloadDialog
         open={downloadOpen}
@@ -365,6 +421,8 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
           )}
         </DialogContent>
       </Dialog>
+
+      <AmbientMode open={ambient} onOpenChange={setAmbient} favoriteIds={favorites} />
 
       {/* fullscreen immersive preview */}
       {fullscreen && (

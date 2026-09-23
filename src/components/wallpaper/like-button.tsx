@@ -28,7 +28,11 @@ export function LikeButton({ liked, likes, pending, onToggle, variant = "chip", 
           className,
         )}
       >
-        {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Heart className={cn("h-4 w-4", liked && "fill-current")} />}
+        {pending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Heart key={liked ? "on" : "off"} className={cn("h-4 w-4", liked && "heart-pop fill-current")} />
+        )}
         {liked ? "Liked" : "Like"} · {likes.toLocaleString()}
       </Button>
     );
@@ -51,7 +55,7 @@ export function LikeButton({ liked, likes, pending, onToggle, variant = "chip", 
       {pending ? (
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
       ) : (
-        <Heart className={cn("h-3.5 w-3.5", liked && "fill-rose-400 text-rose-400")} />
+        <Heart key={liked ? "on" : "off"} className={cn("h-3.5 w-3.5", liked && "heart-pop fill-rose-400 text-rose-400")} />
       )}
       {likes.toLocaleString()}
     </button>

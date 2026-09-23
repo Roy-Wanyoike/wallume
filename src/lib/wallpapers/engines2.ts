@@ -1586,6 +1586,517 @@ const bubbleRise: DrawFn = (ctx, w, h, t, p, env) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* 25 · Lava Lamp — blobs rise, your warmth draws them in              */
+/* ------------------------------------------------------------------ */
+
+type Blob = { x0: number; y0: number; r: number; sp: number; ph: number; c: number; ox: number; oy: number; heat: number };
+type LavaState = { blobs: Blob[]; flashes: { x: number; y: number; t0: number }[] };
+
+const lavaLamp: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, bg0, bg1);
+
+  // glass vessel edge vignette
+  const vg = ctx.createRadialGradient(w / 2, h * 0.45, m * 0.2, w / 2, h * 0.5, Math.max(w, h) * 0.75);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.55));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+
+  const st = canvasState<LavaState>(ctx, `lava${p.seed}|${p.density}`, () => {
+    const r = mulberry32(p.seed);
+    const n = Math.round(clamp(11 * p.density * areaScale(w, h), 6, 20));
+    const blobs: Blob[] = [];
+    for (let i = 0; i < n; i++) {
+      blobs.push({
+        x0: 0.12 + r() * 0.76,
+        y0: r(),
+        r: m * (0.035 + r() * 0.075),
+        sp: 0.3 + r() * 0.7,
+        ph: r() * TAU,
+        c: 2 + Math.floor(r() * 3),
+        ox: 0,
+        oy: 0,
+        heat: 0,
+      });
+    }
+    return { blobs, flashes: [] };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.flashes.push({ x: tap.x * w, y: tap.y * h, t0: t });
+      for (const b of st.blobs) {
+        const bx = b.x0 * w + b.ox;
+        const by = b.y0 * h + b.oy;
+        const d = Math.hypot(bx - tap.x * w, by - tap.y * h);
+        if (d < m * 0.4) b.heat = Math.min(1.6, b.heat + (1 - d / (m * 0.4)) * 1.2);
+      }
+    }
+  }
+
+  // warm base plate glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.5, h * 0.97, m * 0.55, a2, 0.16 + p.glow * 0.08);
+  ctx.restore();
+
+  // tap flashes
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  st.flashes = st.flashes.filter((f) => t - f.t0 < 0.7);
+  for (const f of st.flashes) {
+    const age = (t - f.t0) / 0.7;
+    softOrb(ctx, f.x, f.y, m * (0.1 + age * 0.3), a3, (1 - age) * 0.5 * (0.5 + p.glow * 0.5));
+  }
+  ctx.restore();
+
+  // blobs
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const b of st.blobs) {
+    const travel = h + b.r * 4;
+    const baseY = travel - ((b.y0 * travel + t * b.sp * m * 0.045 * sp) % travel) - b.r * 2;
+    const bx = b.x0 * w + Math.sin(t * 0.5 * sp + b.ph) * m * 0.03;
+    const by = baseY + Math.cos(t * 0.62 * sp + b.ph * 1.7) * m * 0.02;
+
+    // cursor warmth — gentle attraction
+    if (ptr) {
+      const dx = ptr.x - (bx + b.ox);
+      const dy = ptr.y - (by + b.oy);
+      const d = Math.hypot(dx, dy);
+      const R = m * 0.45;
+      if (d < R && d > 0.001) {
+        const f = (1 - d / R) * (ptr.down ? 1.5 : 0.7);
+        b.ox += (dx / d) * f * m * 0.02 * dt * 60 * 0.1;
+        b.oy += (dy / d) * f * m * 0.02 * dt * 60 * 0.1;
+      }
+    }
+
+    // heat buoyancy — heated blobs shoot upward then cool
+    if (b.heat > 0.01) {
+      b.oy -= b.heat * m * 0.05 * dt * 60 * 0.12;
+      b.heat *= Math.exp(-dt * 1.1);
+    }
+    const dec = Math.exp(-dt * 0.9);
+    b.ox *= dec;
+    b.oy *= dec;
+
+    const color = p.colors[b.c];
+    const wob = 1 + Math.sin(t * 1.1 * sp + b.ph * 2.3) * 0.07;
+    const r2 = b.r * wob * (1 + b.heat * 0.15);
+    softOrb(ctx, bx + b.ox, by + b.oy, r2 * 2.1, color, (0.14 + p.glow * 0.1) * (1 + b.heat * 0.4));
+
+    // dense core
+    const g = ctx.createRadialGradient(bx + b.ox - r2 * 0.2, by + b.oy - r2 * 0.3, r2 * 0.1, bx + b.ox, by + b.oy, r2);
+    g.addColorStop(0, rgba(color, 0.85));
+    g.addColorStop(0.75, rgba(shade(color, -0.15), 0.55));
+    g.addColorStop(1, rgba(color, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(bx + b.ox, by + b.oy, r2, 0, TAU);
+    ctx.fill();
+
+    // highlight
+    ctx.fillStyle = rgba("#ffffff", 0.28);
+    ctx.beginPath();
+    ctx.ellipse(bx + b.ox - r2 * 0.3, by + b.oy - r2 * 0.42, r2 * 0.22, r2 * 0.13, -0.5, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // glass reflection streak
+  const refl = ctx.createLinearGradient(w * 0.12, 0, w * 0.4, h);
+  refl.addColorStop(0, rgba("#ffffff", 0.05));
+  refl.addColorStop(0.5, rgba("#ffffff", 0.015));
+  refl.addColorStop(1, rgba("#ffffff", 0));
+  ctx.fillStyle = refl;
+  ctx.beginPath();
+  ctx.moveTo(w * 0.1, 0);
+  ctx.lineTo(w * 0.24, 0);
+  ctx.lineTo(w * 0.42, h);
+  ctx.lineTo(w * 0.3, h);
+  ctx.closePath();
+  ctx.fill();
+};
+
+/* ------------------------------------------------------------------ */
+/* 26 · Lantern Drift — tap releases a lantern into the night          */
+/* ------------------------------------------------------------------ */
+
+type Lantern = { x0: number; y0: number; r: number; sp: number; ph: number; z: number; born: number; user: boolean };
+type LanternState = { lanterns: Lantern[] };
+
+const lanternDrift: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, bg0, bg1);
+
+  // stars
+  const rs = mulberry32(p.seed + 7);
+  ctx.save();
+  for (let i = 0; i < 70; i++) {
+    const sx = rs() * w;
+    const sy = rs() * h * 0.75;
+    const tw = 0.25 + 0.75 * Math.abs(Math.sin(t * (0.4 + rs()) * sp + i));
+    ctx.fillStyle = rgba("#ffffff", tw * 0.5);
+    ctx.fillRect(sx, sy, 1.4, 1.4);
+  }
+  ctx.restore();
+
+  // horizon glow + hills
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.5, h * 0.94, m * 0.9, a2, 0.1 + p.glow * 0.06);
+  ctx.restore();
+  const hillBase = h * 0.92;
+  ctx.fillStyle = rgba(shade(bg0, -0.5), 0.9);
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  ctx.lineTo(0, hillBase);
+  for (let x = 0; x <= w; x += Math.max(10, w / 20)) {
+    ctx.lineTo(x, hillBase - Math.abs(Math.sin(x * 0.004 + p.seed * 0.13)) * m * 0.09);
+  }
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fill();
+
+  const st = canvasState<LanternState>(ctx, `lant${p.seed}|${p.density}`, () => {
+    const r = mulberry32(p.seed);
+    const n = Math.round(clamp(16 * p.density * areaScale(w, h), 8, 30));
+    const lanterns: Lantern[] = [];
+    for (let i = 0; i < n; i++) {
+      lanterns.push({
+        x0: 0.05 + r() * 0.9,
+        y0: r(),
+        r: m * (0.014 + r() * 0.03),
+        sp: 0.5 + r() * 0.9,
+        ph: r() * TAU,
+        z: 0.35 + r() * 0.65,
+        born: 0,
+        user: false,
+      });
+    }
+    return { lanterns };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  // taps release a fresh lantern
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.lanterns.push({
+        x0: tap.x,
+        y0: 1.08,
+        r: m * (0.02 + Math.random() * 0.022),
+        sp: 0.8 + Math.random() * 0.6,
+        ph: Math.random() * TAU,
+        z: 0.8,
+        born: t,
+        user: true,
+      });
+      if (st.lanterns.length > 70) {
+        const idx = st.lanterns.findIndex((l) => !l.user);
+        if (idx >= 0) st.lanterns.splice(idx, 1);
+        else st.lanterns.shift();
+      }
+    }
+  }
+
+  // breeze from pointer movement
+  let breeze = 0;
+  if (ptr) breeze = clamp(ptr.vx / (w * 2.2), -0.6, 0.6);
+
+  // lanterns
+  for (const l of st.lanterns) {
+    const travel = h + l.r * 10;
+    let ly = travel - ((l.y0 * travel + t * l.sp * m * 0.05 * sp) % travel) - l.r * 2;
+    if (l.user && t - l.born < 1.2) {
+      // pop-in ease for user lanterns
+      const k = clamp((t - l.born) / 1.2, 0, 1);
+      ly = h * 1.08 + (ly - h * 1.08) * k;
+    }
+    const lx = l.x0 * w + Math.sin(t * 0.6 * sp + l.ph) * m * 0.02 + breeze * m * 0.14 * l.z;
+
+    const flick = 0.85 + 0.15 * Math.sin(t * 7 * sp + l.ph * 3);
+    const warm = l.user ? a3 : l.z > 0.6 ? a2 : a1;
+    const size = l.r * (0.6 + l.z * 0.6);
+
+    // halo
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    softOrb(ctx, lx, ly, size * 3.4, warm, 0.16 * flick * (0.4 + p.glow * 0.5) * l.z);
+    ctx.restore();
+
+    // paper body
+    const g = ctx.createLinearGradient(lx, ly - size, lx, ly + size);
+    g.addColorStop(0, rgba(shade(warm, 0.25), 0.95 * flick));
+    g.addColorStop(0.55, rgba(warm, 0.95));
+    g.addColorStop(1, rgba(shade(warm, -0.25), 0.95));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(lx, ly, size * 0.72, size, 0, 0, TAU);
+    ctx.fill();
+
+    // ribs
+    ctx.strokeStyle = rgba(shade(warm, -0.4), 0.5);
+    ctx.lineWidth = Math.max(0.6, size * 0.05);
+    for (const off of [-0.4, 0, 0.4]) {
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, size * 0.72 * Math.abs(off) + size * 0.15, size, 0, -Math.PI / 2, Math.PI / 2);
+      ctx.stroke();
+    }
+    // flame core
+    ctx.fillStyle = rgba("#ffffff", 0.9 * flick);
+    ctx.beginPath();
+    ctx.arc(lx, ly + size * 0.25, Math.max(0.8, size * 0.16), 0, TAU);
+    ctx.fill();
+  }
+
+  // gentle vignette
+  const vg = ctx.createRadialGradient(w / 2, h * 0.4, m * 0.3, w / 2, h * 0.5, Math.max(w, h) * 0.72);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.42));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 27 · Warp Speed — hyperspace starfield you can steer                */
+/* ------------------------------------------------------------------ */
+
+type Star = { ang: number; dist: number; sp: number; c: number; size: number };
+type WarpState = { stars: Star[]; boost: number; cx: number; cy: number };
+
+const warpSpeed: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<WarpState>(ctx, `warp${p.seed}|${p.density}`, () => {
+    const r = mulberry32(p.seed);
+    const n = Math.round(clamp(150 * p.density * areaScale(w, h), 80, 280));
+    const stars: Star[] = [];
+    for (let i = 0; i < n; i++) {
+      stars.push({
+        ang: r() * TAU,
+        dist: 0.02 + Math.pow(r(), 1.6) * 1.4,
+        sp: 0.5 + r() * 1.4,
+        c: 2 + Math.floor(r() * 3),
+        size: 0.5 + r() * 1.6,
+      });
+    }
+    return { stars, boost: 0, cx: 0, cy: 0 };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  // taps trigger a warp jump
+  if (env) {
+    for (const _tap of env.pointer.taps) st.boost = 1;
+  }
+
+  // steering — vanishing point eases toward the pointer
+  const targetX = ptr ? (ptr.x / w - 0.5) : 0;
+  const targetY = ptr ? (ptr.y / h - 0.5) : 0;
+  st.cx = lerp(st.cx, targetX, 1 - Math.exp(-dt * 2.2));
+  st.cy = lerp(st.cy, targetY, 1 - Math.exp(-dt * 2.2));
+
+  const cx = w * (0.5 + st.cx * 0.34);
+  const cy = h * (0.5 + st.cy * 0.34);
+  const boost = st.boost;
+  const speedMul = (1 + boost * 5) * sp;
+
+  // nebula backdrop
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, cx, cy, m * 0.5, a2, 0.1 + p.glow * 0.06);
+  softOrb(ctx, w * 0.75, h * 0.3, m * 0.35, a3, 0.05 + p.glow * 0.04);
+  ctx.restore();
+
+  // stars
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  for (const s of st.stars) {
+    const orbit = (s.dist + t * 0.055 * s.sp * speedMul * 0.28) % 1.65;
+    const dist = orbit * Math.max(w, h) * 0.9;
+    const x = cx + Math.cos(s.ang) * dist;
+    const y = cy + Math.sin(s.ang) * dist * 0.98;
+    const fade = clamp(1.4 - orbit, 0, 1) * clamp(orbit * 6, 0, 1);
+    if (fade <= 0.01) continue;
+
+    // streak length grows with speed & distance
+    const streak = dist * 0.11 * speedMul * (0.35 + s.sp * 0.4);
+    const nx = cx + Math.cos(s.ang) * (dist - streak);
+    const ny = cy + Math.sin(s.ang) * (dist - streak) * 0.98;
+    const color = p.colors[s.c];
+
+    ctx.strokeStyle = rgba(color, fade * 0.85);
+    ctx.lineWidth = s.size * (0.7 + boost * 0.9);
+    ctx.beginPath();
+    ctx.moveTo(nx, ny);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+
+    if (orbit < 0.25) glowDot(ctx, x, y, s.size * 1.2, color, 8 * p.glow, fade * 0.9);
+  }
+  ctx.restore();
+
+  // warp flash + chromatic edge on jump
+  if (boost > 0.02) {
+    ctx.fillStyle = rgba("#ffffff", boost * 0.08 * (0.5 + p.glow * 0.5));
+    ctx.fillRect(0, 0, w, h);
+    st.boost *= Math.exp(-dt * 1.4);
+  }
+
+  // central glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, cx, cy, m * 0.08, "#ffffff", 0.35 * (0.5 + p.glow * 0.5));
+  ctx.restore();
+
+  // vignette
+  const vg = ctx.createRadialGradient(w / 2, h / 2, m * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.5));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 28 · Kaleidoscope — mirrored geometry that follows your angle       */
+/* ------------------------------------------------------------------ */
+
+type KaleidoState = { rot: number; pulses: { t0: number; ang: number }[] };
+
+const kaleidoscope: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, shade(bg0, -0.1), bg1);
+
+  const st = canvasState<KaleidoState>(ctx, `kal${p.seed}`, () => ({
+    rot: 0,
+    pulses: [],
+  }));
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.pulses.push({ t0: t, ang: Math.atan2(tap.y - 0.5, tap.x - 0.5) });
+      if (st.pulses.length > 6) st.pulses.shift();
+    }
+  }
+
+  // rotation: slow base + cursor angular steering
+  let steer = 0;
+  if (ptr) {
+    const ang = Math.atan2(ptr.y - h / 2, ptr.x - w / 2);
+    steer = (Math.sin(ang) * ptr.speed) * 0.35;
+  }
+  st.rot += dt * (0.12 * sp + steer);
+
+  const cx = w / 2;
+  const cy = h / 2;
+  const R = m * 0.48;
+  const segments = 10;
+  const pulses = st.pulses.map((pu) => ({ ...pu, radius: (t - pu.t0) * m * 0.55 }));
+
+  // soft center light
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, cx, cy, m * 0.3, a2, 0.1 + p.glow * 0.06);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(st.rot);
+  ctx.globalCompositeOperation = "lighter";
+
+  for (let seg = 0; seg < segments; seg++) {
+    const base = (seg / segments) * TAU;
+    ctx.save();
+    ctx.rotate(base);
+
+    // petal shape per segment
+    for (let layer = 0; layer < 3; layer++) {
+      const lr = R * (0.24 + layer * 0.24);
+      const breath = 1 + Math.sin(t * 0.9 * sp + layer * 1.4 + seg * 0.6) * 0.06;
+      const color = p.colors[2 + layer];
+      let pulseGlow = 0;
+      for (const pu of pulses) {
+        const rel = Math.abs(((base + st.rot - pu.ang + Math.PI * 3) % TAU) - Math.PI);
+        if (rel < 0.6 && Math.abs(pu.radius - lr) < m * 0.12) pulseGlow = Math.max(pulseGlow, 1 - Math.abs(pu.radius - lr) / (m * 0.12));
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.bezierCurveTo(lr * 0.4, -lr * 0.36 * breath, lr * 1.05, -lr * 0.2, lr * 1.18, 0);
+      ctx.bezierCurveTo(lr * 1.05, lr * 0.2, lr * 0.4, lr * 0.36 * breath, 0, 0);
+      const g = ctx.createLinearGradient(0, 0, lr * 1.2, 0);
+      g.addColorStop(0, rgba(color, 0.05 + pulseGlow * 0.25));
+      g.addColorStop(0.65, rgba(color, (0.12 + p.glow * 0.1) * (0.7 + layer * 0.2) + pulseGlow * 0.3));
+      g.addColorStop(1, rgba(color, 0.02));
+      ctx.fillStyle = g;
+      ctx.fill();
+
+      // edge line
+      ctx.strokeStyle = rgba(color, 0.18 + pulseGlow * 0.4);
+      ctx.lineWidth = Math.max(0.7, m * 0.003 * (1 + pulseGlow));
+      ctx.stroke();
+    }
+
+    // gem dot
+    const gd = R * 0.14;
+    const gemC = p.colors[2 + ((seg + Math.floor(t)) % 3)];
+    const twinkle = 0.5 + 0.5 * Math.sin(t * 1.7 * sp + seg * 2.1);
+    ctx.beginPath();
+    ctx.arc(gd, 0, m * 0.012 * (0.7 + twinkle * 0.6), 0, TAU);
+    ctx.fillStyle = rgba(gemC, 0.4 + twinkle * 0.4);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // pulse rings across the whole wheel
+  for (const pu of pulses) {
+    const age = t - pu.t0;
+    if (age > 1.6) continue;
+    ctx.strokeStyle = rgba("#ffffff", (1 - age / 1.6) * 0.4 * (0.5 + p.glow * 0.5));
+    ctx.lineWidth = Math.max(1, m * 0.006 * (1 - age / 1.6));
+    ctx.beginPath();
+    ctx.arc(0, 0, pu.radius, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // center jewel
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  glowDot(ctx, cx, cy, m * 0.02, a3, 20 * p.glow, 0.9);
+  ctx.restore();
+
+  // vignette
+  const vg = ctx.createRadialGradient(cx, cy, R * 0.5, cx, cy, R * 1.25);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.55));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
 /* registry                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1602,4 +2113,8 @@ export const INTERACTIVE_ENGINES = {
   crystalCave,
   stormCells,
   bubbleRise,
+  lavaLamp,
+  lanternDrift,
+  warpSpeed,
+  kaleidoscope,
 } as const;

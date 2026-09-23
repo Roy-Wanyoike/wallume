@@ -63,6 +63,8 @@ export type InteractionKind =
   | "strike"
   | "gust"
   | "shimmer"
+  | "warp"
+  | "bloom"
   | "parallax";
 
 export type WallpaperCategory =
@@ -135,5 +137,6 @@ export type CommunityItem = {
   title: string;
   author: string;
   image: string;
+  palette: string[] | null;
   createdAt: string;
 };
