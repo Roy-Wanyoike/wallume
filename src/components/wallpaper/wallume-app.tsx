@@ -24,8 +24,11 @@ import { Studio } from "./studio";
 import type { DeviceMode } from "./studio";
 import { GalleryGrid } from "./gallery-grid";
 import { CommunitySection } from "./community";
+import { SceneOfTheDay } from "./scene-of-the-day";
+import { ScrollProgress } from "./scroll-progress";
 import { DownloadDialog } from "./download-dialog";
 import { WallpaperCanvas } from "./wallpaper-canvas";
+import { useFavorites } from "@/hooks/use-favorites";
 
 const LIKES_KEY = "wallume:likes";
 
@@ -43,6 +46,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
+  const { favorites, toggleFavorite, isFavorite } = useFavorites();
 
   /* ---------------- restore likes + shared preset ---------------- */
   useEffect(() => {
@@ -215,14 +219,89 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     };
   }, [fullscreen]);
 
+  /* -------------------------- keyboard shortcuts -------------------------- */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable ||
+          target.closest("[role=dialog]"))
+      )
+        return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const idx = WALLPAPERS.findIndex((w) => w.id === def.id);
+      switch (e.key) {
+        case "ArrowRight": {
+          const next = WALLPAPERS[(idx + 1) % WALLPAPERS.length];
+          setDef(next);
+          setConfig((c) => ({ ...c, paletteIndex: 0, customColors: null }));
+          toast({ title: `${next.icon} ${next.name}`, description: next.tagline });
+          break;
+        }
+        case "ArrowLeft": {
+          const prev = WALLPAPERS[(idx - 1 + WALLPAPERS.length) % WALLPAPERS.length];
+          setDef(prev);
+          setConfig((c) => ({ ...c, paletteIndex: 0, customColors: null }));
+          toast({ title: `${prev.icon} ${prev.name}`, description: prev.tagline });
+          break;
+        }
+        case "f":
+        case "F":
+          setFullscreen((v) => !v);
+          break;
+        case "d":
+        case "D":
+          setDownloadOpen(true);
+          break;
+        case "r":
+        case "R":
+          setConfig(randomConfig(def));
+          break;
+        case "s":
+        case "S": {
+          let next = WALLPAPERS[Math.floor(Math.random() * WALLPAPERS.length)];
+          while (next.id === def.id) {
+            next = WALLPAPERS[Math.floor(Math.random() * WALLPAPERS.length)];
+          }
+          setDef(next);
+          setConfig(randomConfig(next));
+          toast({ title: `${next.icon} ${next.name}`, description: next.tagline });
+          break;
+        }
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [def, toast]);
+
   return (
     <>
-      <Studio
+      <ScrollProgress />
+
+      <SceneOfTheDay
+        stats={stats}
+        likedIds={likedIds}
+        isFavorite={isFavorite}
+        onToggleLike={toggleLike}
+        onLoad={selectDef}
+      />
+
+      <div className="pt-8">
+        <Studio
         def={def}
         config={config}
         stats={stats[def.id] ?? { likes: 0, downloads: 0 }}
         liked={likedIds.includes(def.id)}
         likePending={likePending === def.id}
+        fav={isFavorite(def.id)}
+        onToggleFav={() => toggleFavorite(def.id)}
         device={device}
         onDeviceChange={setDevice}
         onToggleLike={() => toggleLike(def.id)}
@@ -234,13 +313,16 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         onPatch={patch}
         onReset={reset}
         onRandomize={randomize}
-      />
+        />
+      </div>
 
       <div className="mt-20">
         <GalleryGrid
           selectedId={def.id}
           stats={stats}
           likedIds={likedIds}
+          favorites={favorites}
+          onToggleFavorite={toggleFavorite}
           onSelect={selectDef}
           onToggleLike={toggleLike}
         />

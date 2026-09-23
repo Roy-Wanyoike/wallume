@@ -3,6 +3,7 @@ import {
   ArrowDown,
   Download,
   Github,
+  Keyboard,
   MousePointerClick,
   Palette,
   Smartphone,
@@ -151,7 +152,7 @@ function HowTo() {
         ))}
       </FadeInStagger>
 
-      <FadeInStagger className="mt-4 grid gap-4 md:grid-cols-3">
+      <FadeInStagger className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <FadeInItem>
           <article className="flex h-full gap-4 rounded-2xl border border-white/10 bg-zinc-900/50 p-5 transition-all duration-300 hover:-translate-y-1 hover:border-white/20">
             <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
@@ -185,6 +186,28 @@ function HowTo() {
                 Record a 5-second loop and use any &ldquo;set video as wallpaper&rdquo; app on
                 Android, or Wallpaper Engine / Lively on Windows, macOS &amp; Linux.
               </p>
+            </div>
+          </article>
+        </FadeInItem>
+        <FadeInItem>
+          <article className="flex h-full gap-4 rounded-2xl border border-white/10 bg-zinc-900/50 p-5 transition-all duration-300 hover:-translate-y-1 hover:border-white/20">
+            <Keyboard className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
+            <div>
+              <h3 className="font-semibold">Keyboard shortcuts</h3>
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                {[
+                  ["← →", "switch scene"],
+                  ["S", "shuffle"],
+                  ["R", "randomize"],
+                  ["F", "fullscreen"],
+                  ["D", "download"],
+                ].map(([key, label]) => (
+                  <span key={key} className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5">
+                    <kbd className="font-mono text-[10px] text-foreground/90">{key}</kbd>
+                    {label}
+                  </span>
+                ))}
+              </div>
             </div>
           </article>
         </FadeInItem>

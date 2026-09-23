@@ -11,6 +11,7 @@ import {
   Share2,
   Signal,
   Smartphone,
+  Star,
   Wifi,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,8 @@ type Props = {
   stats: WallpaperStats;
   liked: boolean;
   likePending: boolean;
+  fav: boolean;
+  onToggleFav: () => void;
   device: DeviceMode;
   onDeviceChange: (d: DeviceMode) => void;
   onToggleLike: () => void;
@@ -203,6 +206,8 @@ export function Studio({
   stats,
   liked,
   likePending,
+  fav,
+  onToggleFav,
   device,
   onDeviceChange,
   onToggleLike,
@@ -271,6 +276,15 @@ export function Studio({
                 <Maximize2 className="h-4 w-4" /> Fullscreen
               </Button>
               <LikeButton variant="full" liked={liked} likes={stats.likes} pending={likePending} onToggle={onToggleLike} />
+              <Button
+                variant="outline"
+                className={cn("h-11 gap-2", fav && "border-amber-400/50 bg-amber-400/10 text-amber-200")}
+                onClick={onToggleFav}
+                aria-pressed={fav}
+              >
+                <Star className={cn("h-4 w-4", fav && "fill-amber-300 text-amber-300")} />
+                {fav ? "Favorited" : "Favorite"}
+              </Button>
               <Button variant="outline" className="h-11 gap-2" onClick={onOpenShare}>
                 <Share2 className="h-4 w-4" /> Save &amp; share
               </Button>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Download, Heart, Search, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ArrowRight, Download, Heart, Search, SlidersHorizontal, Sparkles, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,25 +33,51 @@ type SortMode = "trending" | "loved" | "newest" | "az";
 
 const PAGE_SIZE = 24;
 
+const CATEGORY_EMOJI: Record<string, string> = {
+  All: "✨",
+  Favorites: "⭐",
+  Nature: "🌿",
+  Ocean: "🌊",
+  Space: "🌌",
+  Abstract: "🎨",
+  Urban: "🌃",
+  Dreamy: "☁️",
+  Retro: "📼",
+  Geometric: "🔷",
+};
+
 type Props = {
   selectedId: string;
   stats: StatsMap;
   likedIds: string[];
+  favorites: string[];
+  onToggleFavorite: (id: string) => void;
   onSelect: (def: WallpaperDef) => void;
   onToggleLike: (id: string) => void;
 };
 
-export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLike }: Props) {
+export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFavorite, onSelect, onToggleLike }: Props) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<WallpaperCategory | "All">("All");
+  const [category, setCategory] = useState<WallpaperCategory | "All" | "Favorites">("All");
   const [sort, setSort] = useState<SortMode>("trending");
   const [limit, setLimit] = useState(PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  const trendingIds = useMemo(() => {
+    return [...WALLPAPERS]
+      .map((w) => ({ id: w.id, score: (stats[w.id]?.downloads ?? 0) + (stats[w.id]?.likes ?? 0) * 3 }))
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map((s) => s.id);
+  }, [stats]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     let list = WALLPAPERS.filter((wp) => {
-      if (category !== "All" && wp.category !== category) return false;
+      if (category === "Favorites") {
+        if (!favorites.includes(wp.id)) return false;
+      } else if (category !== "All" && wp.category !== category) return false;
       if (!q) return true;
       return (
         wp.name.toLowerCase().includes(q) ||
@@ -80,7 +106,7 @@ export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLik
         break;
     }
     return list;
-  }, [query, category, sort, stats]);
+  }, [query, category, sort, stats, favorites]);
 
   // reset pagination whenever filters change (state-adjust-during-render)
   const [prevFilterKey, setPrevFilterKey] = useState("");
@@ -107,6 +133,9 @@ export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLik
   }, [filtered.length]);
 
   const visible = filtered.slice(0, limit);
+
+  const chips: (WallpaperCategory | "All" | "Favorites")[] = ["All", ...CATEGORIES];
+  if (favorites.length > 0) chips.push("Favorites");
 
   return (
     <section id="gallery" className="mx-auto w-full max-w-6xl scroll-mt-20 px-4">
@@ -150,8 +179,13 @@ export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLik
 
       {/* category chips */}
       <div className="mb-5 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Filter by category">
-        {(["All", ...CATEGORIES] as const).map((cat) => {
-          const count = cat === "All" ? WALLPAPERS.length : WALLPAPERS.filter((w) => w.category === cat).length;
+        {chips.map((cat) => {
+          const count =
+            cat === "All"
+              ? WALLPAPERS.length
+              : cat === "Favorites"
+                ? favorites.length
+                : WALLPAPERS.filter((w) => w.category === cat).length;
           const active = category === cat;
           return (
             <button
@@ -162,10 +196,13 @@ export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLik
               className={cn(
                 "shrink-0 rounded-full border px-4 py-1.5 text-xs font-medium transition-all active:scale-95",
                 active
-                  ? "border-fuchsia-400/60 bg-fuchsia-500/15 text-fuchsia-200 shadow-[0_0_16px_-4px] shadow-fuchsia-500/40"
+                  ? cat === "Favorites"
+                    ? "border-amber-400/60 bg-amber-400/15 text-amber-200 shadow-[0_0_16px_-4px] shadow-amber-400/40"
+                    : "border-fuchsia-400/60 bg-fuchsia-500/15 text-fuchsia-200 shadow-[0_0_16px_-4px] shadow-fuchsia-500/40"
                   : "border-white/10 bg-white/[0.03] text-muted-foreground hover:border-white/25 hover:text-foreground",
               )}
             >
+              <span aria-hidden className="mr-1">{CATEGORY_EMOJI[cat] ?? ""}</span>
               {cat} <span className="ml-0.5 opacity-60">{count}</span>
             </button>
           );
@@ -174,7 +211,9 @@ export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLik
 
       {visible.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-white/15 p-12 text-center text-sm text-muted-foreground">
-          No wallpapers match “{query}”. Try another word — or just clear the search.
+          {category === "Favorites"
+            ? "No favorites yet — tap the ⭐ on any wallpaper to keep it here."
+            : `No wallpapers match “${query}”. Try another word — or just clear the search.`}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
@@ -182,13 +221,14 @@ export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLik
             const selected = wp.id === selectedId;
             const st = stats[wp.id] ?? { likes: 0, downloads: 0 };
             const liked = likedIds.includes(wp.id);
+            const fav = favorites.includes(wp.id);
             const isNew = (wp.tags ?? []).includes("new");
             return (
               <article
                 key={wp.id}
                 className={cn(
                   "group relative overflow-hidden rounded-2xl border bg-zinc-900/60 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl",
-                  selected ? "border-fuchsia-400/70 shadow-fuchsia-500/20" : "border-white/10 hover:border-white/25",
+                  selected ? "selected-card border-fuchsia-400/70 shadow-fuchsia-500/20" : "border-white/10 hover:border-white/25",
                 )}
               >
                 <button
@@ -223,6 +263,11 @@ export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLik
                         NEW
                       </span>
                     )}
+                    {trendingIds.includes(wp.id) && !selected && !isNew && (
+                      <span className="absolute left-2 top-2 rounded-full bg-rose-500/90 px-2 py-0.5 text-[10px] font-bold text-white shadow">
+                        🔥 Trending
+                      </span>
+                    )}
 
                     <div className="absolute inset-x-0 bottom-0 p-3">
                       <div className="flex items-center gap-1.5">
@@ -241,10 +286,23 @@ export function GalleryGrid({ selectedId, stats, likedIds, onSelect, onToggleLik
 
                 <div className="flex items-center justify-between gap-2 border-t border-white/5 px-2.5 py-2">
                   <LikeButton liked={liked} likes={st.likes} onToggle={() => onToggleLike(wp.id)} />
-                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Download className="h-3 w-3" />
-                    {st.downloads.toLocaleString()}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onToggleFavorite(wp.id)}
+                      aria-pressed={fav}
+                      aria-label={fav ? `Remove ${wp.name} from favorites` : `Add ${wp.name} to favorites`}
+                      className={cn(
+                        "rounded-full p-1.5 transition-all active:scale-90",
+                        fav ? "text-amber-300" : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <Star className={cn("h-3.5 w-3.5", fav && "fill-amber-300")} />
+                    </button>
+                    <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                      <Download className="h-3 w-3" />
+                      {st.downloads.toLocaleString()}
+                    </span>
+                  </div>
                 </div>
 
                 <Badge
