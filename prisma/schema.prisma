@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Aggregate engagement stats for each wallpaper engine (keyed by slug)
+model WallpaperStat {
+  id        String   @id // wallpaper slug, e.g. "aurora-veil"
+  likes     Int      @default(0)
+  downloads Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// User-customized wallpaper configuration, shareable via short code
+model Preset {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  data      String // JSON serialized WallpaperConfig
+  createdAt DateTime @default(now())
+}
+
+// Community-submitted images — visible to everyone, downloadable "coming soon"
+model CommunitySubmission {
+  id        String   @id @default(cuid())
+  title     String
+  author    String   @default("Anonymous")
+  image     String // resized data-URL (jpeg, <= ~1.8 MB)
+  createdAt DateTime @default(now())
+}

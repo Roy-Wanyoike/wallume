@@ -1,0 +1,46 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# build output
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# environment & secrets — NEVER commit
+.env
+.env.*
+upload/
+*.pem
+*.key
+
+# local databases
+db/
+*.db
+*.db-journal
+
+# logs
+dev.log
+server.log
+*.log
+
+# sandbox / internal
+tests/
+worklog.md
+examples/
+Caddyfile
+
+# misc
+.DS_Store
+*.pnode
+.idea/
+.vscode/
+
+# sandbox internals
+skills/
+"skills"/
+.zscripts/
