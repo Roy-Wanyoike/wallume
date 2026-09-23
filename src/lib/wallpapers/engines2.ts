@@ -4274,6 +4274,841 @@ const paperCranes: DrawFn = (ctx, w, h, t, p, env) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* 39 · Murmuration — a starling flock that scatters from your touch   */
+/* ------------------------------------------------------------------ */
+
+type MurmBird = {
+  hx: number;
+  hy: number;
+  ringR: number;
+  ringSp: number;
+  ph: number;
+  size: number;
+  c: number;
+  ox: number;
+  oy: number;
+  vx: number;
+  vy: number;
+};
+
+type MurmState = {
+  birds: MurmBird[];
+  specks: { x: number; y: number; vx: number; vy: number; t0: number; ph: number }[];
+  rings: { x: number; y: number; t0: number }[];
+};
+
+const murmuration: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<MurmState>(ctx, `murm${p.seed}|${p.density}`, () => {
+    const birds: MurmBird[] = [];
+    const n = Math.round(clamp(30 * p.density * areaScale(w, h), 12, 48));
+    for (let i = 0; i < n; i++) {
+      birds.push({
+        hx: 0.12 + rnd() * 0.76,
+        hy: 0.1 + rnd() * 0.66,
+        ringR: 0.015 + rnd() * 0.085,
+        ringSp: (0.16 + rnd() * 0.3) * (rnd() > 0.5 ? 1 : -1),
+        ph: rnd() * TAU,
+        size: 0.55 + rnd() * 0.8,
+        c: 2 + Math.floor(rnd() * 3),
+        ox: 0, oy: 0, vx: 0, vy: 0,
+      });
+    }
+    return { birds, specks: [], rings: [] };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  // shared attractor the whole flock orbits — one mind, many wings
+  const ax = w * (0.5 + 0.3 * Math.sin(t * 0.15 * sp + 1.3));
+  const ay = h * (0.44 + 0.27 * Math.sin(t * 0.115 * sp * 1.31));
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      // hawk-scare — radial impulse + loose feathers
+      for (const b of st.birds) {
+        const bx = b.hx * w + b.ox;
+        const by = b.hy * h + b.oy;
+        const d = Math.hypot(bx - tap.x * w, by - tap.y * h);
+        const R = m * 0.42;
+        if (d < R && d > 0.001) {
+          const f = 1 - d / R;
+          b.vx += ((bx - tap.x * w) / d) * f * m * 1.5;
+          b.vy += ((by - tap.y * h) / d) * f * m * 1.5;
+        }
+      }
+      for (let i = 0; i < 8; i++) {
+        st.specks.push({
+          x: tap.x * w + (rnd() - 0.5) * m * 0.06,
+          y: tap.y * h + (rnd() - 0.5) * m * 0.06,
+          vx: (rnd() - 0.5) * m * 0.24,
+          vy: (rnd() - 0.62) * m * 0.22,
+          t0: t,
+          ph: rnd() * TAU,
+        });
+      }
+      st.rings.push({ x: tap.x * w, y: tap.y * h, t0: t });
+      if (st.specks.length > 64) st.specks.splice(0, st.specks.length - 64);
+      if (st.rings.length > 8) st.rings.splice(0, st.rings.length - 8);
+    }
+  }
+  st.specks = st.specks.filter((f) => t - f.t0 < 1.7);
+  st.rings = st.rings.filter((r) => t - r.t0 < 1.2);
+
+  // moon + haze
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.76, h * 0.16, m * 0.17, a3, 0.16 + p.glow * 0.12);
+  softOrb(ctx, w * 0.76, h * 0.16, m * 0.07, "#ffffff", 0.08, 0.75);
+  ctx.restore();
+
+  // distant stars
+  ctx.fillStyle = rgba("#ffffff", 0.5);
+  for (let i = 0; i < 34; i++) {
+    const sx = rnd() * w;
+    const sy = rnd() * h * 0.7;
+    const tw = 0.35 + 0.3 * Math.sin(t * (0.6 + (i % 5) * 0.22) * sp + i * 2.7);
+    ctx.globalAlpha = tw * 0.55;
+    ctx.fillRect(sx, sy, 1.2, 1.2);
+  }
+  ctx.globalAlpha = 1;
+
+  // treeline silhouette
+  ctx.fillStyle = rgba(shade(bg0, -0.5), 0.9);
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  for (let x = 0; x <= w; x += Math.max(6, w / 42)) {
+    const th = h * (0.9 + 0.05 * Math.sin(x * 0.03 + p.seed) + 0.03 * Math.sin(x * 0.011 + p.seed * 2));
+    ctx.lineTo(x, th);
+  }
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fill();
+
+  // birds — chase the attractor, flee the finger
+  const dec = Math.exp(-dt * 1.6);
+  for (const b of st.birds) {
+    const ringA = b.ph + t * b.ringSp * sp;
+    const desiredX = ax + Math.cos(ringA) * b.ringR * w + Math.sin(t * 0.7 * sp + b.ph) * m * 0.012;
+    const desiredY = ay + Math.sin(ringA) * b.ringR * h * 0.8 + Math.cos(t * 0.6 * sp + b.ph * 1.6) * m * 0.012;
+
+    if (env) {
+      b.ox += (desiredX - b.hx * w - b.ox) * Math.min(1, dt * 2.6);
+      b.oy += (desiredY - b.hy * h - b.oy) * Math.min(1, dt * 2.6);
+      if (ptr) {
+        const bx = b.hx * w + b.ox;
+        const by = b.hy * h + b.oy;
+        const dx = bx - ptr.x;
+        const dy = by - ptr.y;
+        const d = Math.hypot(dx, dy);
+        const R = m * 0.26;
+        if (d < R && d > 0.001) {
+          const k = (1 - d / R) * (ptr.down ? 2.1 : 1);
+          b.ox += (dx / d) * k * m * 0.086 * dt;
+          b.oy += (dy / d) * k * m * 0.086 * dt;
+        }
+      }
+      b.ox += b.vx * dt * 0.55;
+      b.oy += b.vy * dt * 0.55;
+      b.vx *= dec;
+      b.vy *= dec;
+    }
+
+    const x = env ? b.hx * w + b.ox : desiredX;
+    const y = env ? b.hy * h + b.oy : desiredY;
+    const s = m * 0.011 * b.size;
+    const flap = Math.sin(t * (7 + b.size * 3) * sp + b.ph);
+    const color = p.colors[b.c];
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.atan2(ay - y, ax - x) * 0.14);
+    ctx.fillStyle = rgba(color, 0.9);
+    // left wing
+    ctx.beginPath();
+    ctx.moveTo(-s * 1.6, 0);
+    ctx.quadraticCurveTo(-s * 0.5, -s * (0.9 + flap * 0.75), s * 0.2, -s * 0.12);
+    ctx.quadraticCurveTo(-s * 0.7, s * (0.12 + flap * 0.2), -s * 1.6, 0);
+    ctx.fill();
+    // right wing
+    ctx.beginPath();
+    ctx.moveTo(s * 1.6, 0);
+    ctx.quadraticCurveTo(s * 0.5, -s * (0.9 + flap * 0.75), -s * 0.2, -s * 0.12);
+    ctx.quadraticCurveTo(s * 0.7, s * (0.12 + flap * 0.2), s * 1.6, 0);
+    ctx.fill();
+    // body
+    ctx.fillStyle = rgba(shade(color, 0.3), 0.85);
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.05, s * 0.42, s * 0.16, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // scattered feathers
+  for (const f of st.specks) {
+    const age = (t - f.t0) / 1.7;
+    const fx = f.x + f.vx * age + Math.sin(age * 7 + f.ph) * m * 0.008;
+    const fy = f.y + f.vy * age * (1 - age * 0.35) + age * age * m * 0.05;
+    ctx.fillStyle = rgba(a3, (1 - age) * 0.6);
+    ctx.beginPath();
+    ctx.ellipse(fx, fy, m * 0.004, m * 0.0016, f.ph + age * 4, 0, TAU);
+    ctx.fill();
+  }
+
+  // scare rings
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const r of st.rings) {
+    const a = (t - r.t0) / 1.2;
+    ctx.strokeStyle = rgba(a2, (1 - a) * 0.35);
+    ctx.lineWidth = Math.max(1, m * 0.004 * (1 - a));
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, a * m * 0.3, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const vg = ctx.createRadialGradient(w / 2, h * 0.45, m * 0.45, w / 2, h * 0.5, Math.max(w, h) * 0.85);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.35), 0.45));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 40 · Gravity Wells — your cursor bends the orbits, tap rains rocks  */
+/* ------------------------------------------------------------------ */
+
+type WellPlanet = {
+  R: number;
+  sp: number;
+  ph: number;
+  size: number;
+  c: number;
+  ring: boolean;
+  ox: number;
+  oy: number;
+};
+
+type WellState = {
+  planets: WellPlanet[];
+  rocks: { R: number; sp: number; ph: number; s: number; ox: number; oy: number }[];
+  shower: { x: number; y: number; vx: number; vy: number; t0: number; c: number }[];
+  rings: { x: number; y: number; t0: number }[];
+};
+
+const gravityWells: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<WellState>(ctx, `well${p.seed}|${p.density}`, () => {
+    const planets: WellPlanet[] = [];
+    const nP = Math.round(clamp(5 * p.density * areaScale(w, h), 3, 8));
+    for (let i = 0; i < nP; i++) {
+      planets.push({
+        R: 0.13 + (i / nP) * 0.3 + rnd() * 0.03,
+        sp: (0.1 + rnd() * 0.16) * (i % 2 ? 1 : 0.7),
+        ph: rnd() * TAU,
+        size: 0.5 + rnd() * 0.9,
+        c: 2 + Math.floor(rnd() * 3),
+        ring: rnd() > 0.66,
+        ox: 0, oy: 0,
+      });
+    }
+    const rocks = [];
+    const nR = Math.round(clamp(56 * p.density * areaScale(w, h), 24, 90));
+    for (let i = 0; i < nR; i++) {
+      rocks.push({
+        R: 0.16 + rnd() * 0.3,
+        sp: 0.14 + rnd() * 0.4,
+        ph: rnd() * TAU,
+        s: 0.5 + rnd() * 1.4,
+        ox: 0, oy: 0,
+      });
+    }
+    return { planets, rocks, shower: [], rings: [] };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+  const cx = w / 2;
+  const cy = h * 0.48;
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      // asteroid shower bursting out of the tap point
+      const n = Math.round(12 * clamp(p.density, 0.5, 1.5));
+      for (let i = 0; i < n; i++) {
+        const ang = rnd() * TAU;
+        const v = m * (0.16 + rnd() * 0.3);
+        st.shower.push({
+          x: tap.x * w,
+          y: tap.y * h,
+          vx: Math.cos(ang) * v,
+          vy: Math.sin(ang) * v,
+          t0: t + rnd() * 0.06,
+          c: 2 + Math.floor(rnd() * 3),
+        });
+      }
+      st.rings.push({ x: tap.x * w, y: tap.y * h, t0: t });
+      if (st.shower.length > 90) st.shower.splice(0, st.shower.length - 90);
+      if (st.rings.length > 8) st.rings.splice(0, st.rings.length - 8);
+    }
+  }
+  st.shower = st.shower.filter((s) => t - s.t0 < 2.1);
+  st.rings = st.rings.filter((r) => t - r.t0 < 1.3);
+
+  // nebula wash
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.24, h * 0.26, m * 0.42, a1, 0.05 + p.glow * 0.03);
+  softOrb(ctx, w * 0.78, h * 0.7, m * 0.38, a2, 0.045 + p.glow * 0.03);
+  ctx.restore();
+
+  // starfield
+  for (let i = 0; i < 60; i++) {
+    const sx = rnd() * w;
+    const sy = rnd() * h;
+    const tw = 0.3 + 0.35 * Math.sin(t * (0.5 + (i % 7) * 0.2) * sp + i * 1.9);
+    ctx.fillStyle = rgba("#ffffff", tw * 0.6);
+    const s = (i % 11 === 0) ? 1.8 : 1.1;
+    ctx.fillRect(sx, sy, s, s);
+  }
+
+  // orbit guides
+  ctx.strokeStyle = rgba("#ffffff", 0.045);
+  ctx.lineWidth = 1;
+  for (const pl of st.planets) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, pl.R * m * 1.18, pl.R * m, 0, 0, TAU);
+    ctx.stroke();
+  }
+
+  // pointer gravity — everything leans in and swirls around the well
+  const pull = (px2: number, py2: number, o: { ox: number; oy: number }, strength: number) => {
+    if (!ptr) {
+      o.ox *= Math.exp(-dt * 2.2);
+      o.oy *= Math.exp(-dt * 2.2);
+      return;
+    }
+    const x = px2 + o.ox;
+    const y = py2 + o.oy;
+    const dx = ptr.x - x;
+    const dy = ptr.y - y;
+    const d = Math.hypot(dx, dy);
+    const R = m * 0.4;
+    if (d < R && d > 0.001) {
+      const f = (1 - d / R) * strength * (ptr.down ? 1.9 : 1);
+      // radial pull + tangential swirl (orbit the finger)
+      o.ox += (dx / d) * f * m * 0.05 * dt + (-dy / d) * f * m * 0.028 * dt;
+      o.oy += (dy / d) * f * m * 0.05 * dt + (dx / d) * f * m * 0.028 * dt;
+      const cap = m * 0.2;
+      const od = Math.hypot(o.ox, o.oy);
+      if (od > cap) {
+        o.ox = (o.ox / od) * cap;
+        o.oy = (o.oy / od) * cap;
+      }
+    } else {
+      o.ox *= Math.exp(-dt * 2.2);
+      o.oy *= Math.exp(-dt * 2.2);
+    }
+  };
+
+  // asteroid belt
+  for (const r of st.rocks) {
+    const ang = r.ph + t * r.sp * sp;
+    const bx = cx + Math.cos(ang) * r.R * m * 1.18;
+    const by = cy + Math.sin(ang) * r.R * m * 0.82;
+    pull(bx, by, r, 0.9);
+    const x = bx + r.ox;
+    const y = by + r.oy;
+    ctx.fillStyle = rgba(a1, 0.5 + r.s * 0.2);
+    ctx.fillRect(x, y, Math.max(1, r.s * m * 0.004), Math.max(1, r.s * m * 0.004));
+  }
+
+  // planets
+  for (const pl of st.planets) {
+    const ang = pl.ph + t * pl.sp * sp;
+    const bx = cx + Math.cos(ang) * pl.R * m * 1.18;
+    const by = cy + Math.sin(ang) * pl.R * m;
+    pull(bx, by, pl, 0.65);
+    const x = bx + pl.ox;
+    const y = by + pl.oy;
+    const pr = m * 0.026 * pl.size;
+    const color = p.colors[pl.c];
+
+    // shaded sphere
+    ctx.save();
+    const pg = ctx.createRadialGradient(x - pr * 0.4, y - pr * 0.4, pr * 0.1, x, y, pr);
+    pg.addColorStop(0, shade(color, 0.35));
+    pg.addColorStop(0.62, color);
+    pg.addColorStop(1, shade(color, -0.55));
+    ctx.fillStyle = pg;
+    ctx.beginPath();
+    ctx.arc(x, y, pr, 0, TAU);
+    ctx.fill();
+
+    // ring
+    if (pl.ring) {
+      ctx.strokeStyle = rgba(shade(color, 0.4), 0.65);
+      ctx.lineWidth = Math.max(1, pr * 0.16);
+      ctx.beginPath();
+      ctx.ellipse(x, y, pr * 1.75, pr * 0.5, ang * 0.3, 0, TAU);
+      ctx.stroke();
+    }
+
+    // atmosphere glow
+    ctx.globalCompositeOperation = "lighter";
+    softOrb(ctx, x, y, pr * 2.1, color, 0.12 + p.glow * 0.1);
+    ctx.restore();
+  }
+
+  // sun core
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, cx, cy, m * 0.1, a3, 0.4 + p.glow * 0.2);
+  softOrb(ctx, cx, cy, m * 0.032, "#ffffff", 0.2, 0.85);
+  ctx.restore();
+
+  // asteroid shower
+  for (const s of st.shower) {
+    const age = t - s.t0;
+    if (age < 0) continue;
+    const drag = Math.exp(-age * 1.1);
+    const x = s.x + s.vx * age * drag;
+    const y = s.y + s.vy * age * drag + age * age * m * 0.05;
+    const tx = s.x + s.vx * Math.max(0, age - 0.07) * drag;
+    const ty = s.y + s.vy * Math.max(0, age - 0.07) * drag + Math.max(0, age - 0.07) ** 2 * m * 0.05;
+    const a = Math.max(0, 1 - age / 2.1);
+    ctx.strokeStyle = rgba(p.colors[s.c], a * 0.75);
+    ctx.lineWidth = Math.max(1, m * 0.003);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+
+  // gravity rings
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const r of st.rings) {
+    const a = (t - r.t0) / 1.3;
+    ctx.strokeStyle = rgba(a3, (1 - a) * 0.4);
+    ctx.lineWidth = Math.max(1, m * 0.005 * (1 - a));
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, a * m * 0.26, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  const vg = ctx.createRadialGradient(cx, cy, m * 0.3, cx, cy, Math.max(w, h) * 0.85);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.4), 0.5));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 41 · Spirit Orchids — hold still and flowers bloom for you          */
+/* ------------------------------------------------------------------ */
+
+type Orchid = {
+  hx: number;
+  hy: number;
+  ph: number;
+  size: number;
+  c1: number;
+  c2: number;
+  petalN: number;
+  bl: number;
+  sway: number;
+};
+
+type OrchidState = {
+  flowers: Orchid[];
+  pollen: { x: number; y: number; sp: number; ph: number; s: number }[];
+  loose: { x: number; y: number; vx: number; vy: number; t0: number; ph: number; c: number }[];
+};
+
+const spiritOrchids: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<OrchidState>(ctx, `orchid${p.seed}|${p.density}`, () => {
+    const flowers: Orchid[] = [];
+    const n = Math.round(clamp(7 * p.density * areaScale(w, h), 4, 11));
+    for (let i = 0; i < n; i++) {
+      flowers.push({
+        hx: 0.12 + rnd() * 0.76,
+        hy: 0.16 + rnd() * 0.62,
+        ph: rnd() * TAU,
+        size: 0.65 + rnd() * 0.8,
+        c1: 2 + Math.floor(rnd() * 2),
+        c2: 3 + Math.floor(rnd() * 2),
+        petalN: 5 + Math.floor(rnd() * 3),
+        bl: 0,
+        sway: 0.6 + rnd() * 0.8,
+      });
+    }
+    const pollen = [];
+    const nP = Math.round(clamp(30 * p.density * areaScale(w, h), 14, 52));
+    for (let i = 0; i < nP; i++) {
+      pollen.push({ x: rnd(), y: rnd(), sp: 0.2 + rnd() * 0.5, ph: rnd() * TAU, s: 0.5 + rnd() });
+    }
+    return { flowers, pollen, loose: [] };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      // petal storm from the nearest blooms + a soft ring
+      for (const f of st.flowers) {
+        const fx = f.hx * w;
+        const fy = f.hy * h + Math.sin(t * f.sway * sp + f.ph) * m * 0.015;
+        if (f.bl > 0.4) {
+          const d = Math.hypot(fx - tap.x * w, fy - tap.y * h);
+          if (d < m * 0.5) {
+            const n = Math.round(3 + f.bl * 5);
+            for (let i = 0; i < n; i++) {
+              st.loose.push({
+                x: fx + (rnd() - 0.5) * m * 0.03,
+                y: fy + (rnd() - 0.5) * m * 0.03,
+                vx: (rnd() - 0.5) * m * 0.14,
+                vy: (rnd() - 0.4) * m * 0.1,
+                t0: t,
+                ph: rnd() * TAU,
+                c: rnd() > 0.5 ? f.c1 : f.c2,
+              });
+            }
+          }
+        }
+      }
+      if (st.loose.length > 80) st.loose.splice(0, st.loose.length - 80);
+    }
+    // grow / close blooms
+    for (const f of st.flowers) {
+      const fx = f.hx * w;
+      const fy = f.hy * h + Math.sin(t * f.sway * sp + f.ph) * m * 0.015;
+      if (ptr) {
+        const d = Math.hypot(fx - ptr.x, fy - ptr.y);
+        const R = m * 0.24;
+        if (d < R) {
+          f.bl = clamp(f.bl + dt * (ptr.down ? 2.3 : 1.25) * (1 - (d / R) * 0.6), 0, 1);
+          continue;
+        }
+      }
+      f.bl = clamp(f.bl - dt * 0.3, 0, 1);
+    }
+  }
+  st.loose = st.loose.filter((l) => t - l.t0 < 2.4);
+
+  // drifting pollen
+  for (const g of st.pollen) {
+    const px = ((g.x + Math.sin(t * 0.09 * g.sp * sp + g.ph) * 0.03) % 1) * w;
+    const py = ((g.y + t * 0.006 * g.sp * sp) % 1) * h;
+    const tw = 0.4 + 0.3 * Math.sin(t * g.sp * 2 * sp + g.ph);
+    if (ptr) {
+      const d = Math.hypot(px - ptr.x, py - ptr.y);
+      if (d < m * 0.18) {
+        // pollen leans gently toward the pointer
+        const k = (1 - d / (m * 0.18)) * 0.35;
+        ctx.fillStyle = rgba(a3, tw * (0.45 + k * 0.5));
+        ctx.beginPath();
+        ctx.arc(px + (ptr.x - px) * k, py + (ptr.y - py) * k, g.s * m * 0.0032, 0, TAU);
+        ctx.fill();
+        continue;
+      }
+    }
+    ctx.fillStyle = rgba(a3, tw * 0.45);
+    ctx.beginPath();
+    ctx.arc(px, py, g.s * m * 0.0032, 0, TAU);
+    ctx.fill();
+  }
+
+  // fog bands
+  ctx.save();
+  for (let i = 0; i < 3; i++) {
+    const fy = h * (0.3 + i * 0.26) + Math.sin(t * 0.07 * sp + i * 2.1) * h * 0.02;
+    ctx.fillStyle = rgba("#ffffff", 0.028);
+    ctx.beginPath();
+    ctx.ellipse(w * (0.3 + 0.2 * i), fy, w * 0.42, m * 0.05, 0, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // flowers
+  for (const f of st.flowers) {
+    const fx = f.hx * w;
+    const fy = f.hy * h + Math.sin(t * f.sway * sp + f.ph) * m * 0.015;
+    const rot = Math.sin(t * 0.4 * sp + f.ph) * 0.08;
+    const bl = env ? f.bl : 0.78 + 0.2 * Math.sin(t * 0.3 + f.ph); // static export: half-open bloom
+    const c1 = p.colors[f.c1];
+    const c2 = p.colors[f.c2];
+    const s = m * 0.032 * f.size;
+
+    ctx.save();
+    ctx.translate(fx, fy);
+    ctx.rotate(rot);
+
+    // stem + leaf
+    ctx.strokeStyle = rgba(shade(a1, -0.25), 0.55);
+    ctx.lineWidth = Math.max(1, s * 0.09);
+    ctx.beginPath();
+    ctx.moveTo(0, s * 0.4);
+    ctx.quadraticCurveTo(s * 0.18, s * 1.15, s * 0.05, s * 1.9);
+    ctx.stroke();
+    ctx.fillStyle = rgba(shade(a1, -0.15), 0.5);
+    ctx.beginPath();
+    ctx.ellipse(s * 0.28, s * 1.1, s * 0.3, s * 0.12, 0.7, 0, TAU);
+    ctx.fill();
+
+    if (bl > 0.06) {
+      // petals
+      for (let k = 0; k < f.petalN; k++) {
+        const pa = (k / f.petalN) * TAU + f.ph;
+        const len = s * (0.55 + bl * 1.15);
+        const wid = s * (0.16 + bl * 0.3);
+        ctx.save();
+        ctx.rotate(pa);
+        ctx.globalCompositeOperation = "source-over";
+        const pg = ctx.createLinearGradient(0, 0, len, 0);
+        pg.addColorStop(0, rgba(c1, 0.28 + bl * 0.5));
+        pg.addColorStop(0.72, rgba(c2, 0.2 + bl * 0.42));
+        pg.addColorStop(1, rgba(shade(c2, 0.35), 0.06 + bl * 0.2));
+        ctx.fillStyle = pg;
+        ctx.beginPath();
+        ctx.ellipse(len * 0.55, 0, len * 0.55, wid, 0, 0, TAU);
+        ctx.fill();
+        // fold line
+        ctx.strokeStyle = rgba("#ffffff", 0.14 + bl * 0.2);
+        ctx.lineWidth = Math.max(0.5, s * 0.022);
+        ctx.beginPath();
+        ctx.moveTo(s * 0.08, 0);
+        ctx.lineTo(len * 0.95, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // glowing heart
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      softOrb(ctx, 0, 0, s * (0.24 + bl * 0.3), a3, 0.16 + bl * 0.3 * (0.4 + p.glow * 0.6));
+      ctx.restore();
+      ctx.fillStyle = rgba(shade(a3, 0.3), 0.5 + bl * 0.45);
+      ctx.beginPath();
+      ctx.arc(0, 0, s * (0.06 + bl * 0.07), 0, TAU);
+      ctx.fill();
+    } else {
+      // closed bud
+      ctx.fillStyle = rgba(c1, 0.5);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s * 0.16, s * 0.22, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = rgba(c2, 0.4);
+      ctx.lineWidth = Math.max(0.5, s * 0.03);
+      ctx.beginPath();
+      ctx.moveTo(0, -s * 0.2);
+      ctx.lineTo(0, s * 0.2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // loose petals fluttering down
+  for (const l of st.loose) {
+    const age = (t - l.t0) / 2.4;
+    const fx = l.x + l.vx * age * 2 + Math.sin(age * 6 + l.ph) * m * 0.02;
+    const fy = l.y + l.vy * age * 2 + age * age * m * 0.16;
+    ctx.save();
+    ctx.translate(fx, fy);
+    ctx.rotate(l.ph + age * 6);
+    ctx.fillStyle = rgba(p.colors[l.c], (1 - age) * 0.8);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, m * 0.011, m * 0.0045, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  const vg = ctx.createRadialGradient(w / 2, h * 0.45, m * 0.4, w / 2, h * 0.5, Math.max(w, h) * 0.8);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.35), 0.42));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 42 · Galaxy Spinner — steer the spin, tap for a hypernova           */
+/* ------------------------------------------------------------------ */
+
+type GalaxyState = {
+  stars: { x: number; y: number; s: number; ph: number }[];
+  novas: { t0: number }[];
+};
+
+const galaxySpinner: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+  const cx = w / 2;
+  const cy = h * 0.5;
+
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<GalaxyState>(ctx, `galaxy${p.seed}|${p.density}`, () => {
+    const stars = [];
+    const n = Math.round(clamp(70 * p.density * areaScale(w, h), 30, 110));
+    for (let i = 0; i < n; i++) {
+      stars.push({ x: rnd(), y: rnd(), s: 0.4 + rnd() * 1.4, ph: rnd() * TAU });
+    }
+    return { stars, novas: [] as { t0: number }[] };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (let i = 0; i < env.pointer.taps.length; i++) {
+      st.novas.push({ t0: t });
+      if (st.novas.length > 4) st.novas.splice(0, st.novas.length - 4);
+    }
+  }
+  st.novas = st.novas.filter((n) => t - n.t0 < 1.6);
+
+  // backdrop stars
+  for (const s of st.stars) {
+    const tw = 0.3 + 0.35 * Math.sin(t * 0.9 * sp + s.ph);
+    ctx.fillStyle = rgba("#ffffff", tw * 0.55);
+    ctx.fillRect(s.x * w, s.y * h, s.s, s.s);
+  }
+
+  // core glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, cx, cy, m * 0.3, a3, 0.14 + p.glow * 0.1);
+  softOrb(ctx, cx, cy, m * 0.09, "#ffffff", 0.1, 0.8);
+  ctx.restore();
+
+  // pointer steering — sweep to spin the arms, hold to tighten
+  let spin = 0.3;
+  let warp = 0;
+  if (ptr) {
+    const rp = Math.hypot(ptr.x - cx, ptr.y - cy) / m;
+    spin = 0.12 + clamp((ptr.x / w - 0.5) * 1.5, -0.75, 0.95);
+    warp = clamp(1 - rp, 0, 1) * (ptr.down ? 1.5 : 0.7);
+  }
+  const spinAcc = canvasState<{ v: number }>(ctx, `galaxyv${p.seed}`, () => ({ v: spin }));
+  spinAcc.v += (spin - spinAcc.v) * Math.min(1, dt * 3.2);
+
+  // spiral arms (phyllotaxis + differential rotation)
+  const N = Math.round(clamp(340 * p.density * areaScale(w, h), 150, 460));
+  const GOLDEN = 2.399963;
+  const maxR = m * 0.46;
+  for (let i = 0; i < N; i++) {
+    const fr = i / N;
+    const r = maxR * Math.sqrt(fr);
+    const twist = (1 - fr * 0.72) * spinAcc.v * sp;
+    const ang = i * GOLDEN + t * twist;
+    const x = cx + Math.cos(ang) * r * 1.18;
+    const y = cy + Math.sin(ang) * r * 0.92;
+
+    // pointer warp — dots near the finger puff outward and brighten
+    let px2 = x;
+    let py2 = y;
+    let boost = 0;
+    if (ptr && warp > 0) {
+      const dx2 = x - ptr.x;
+      const dy2 = y - ptr.y;
+      const d = Math.hypot(dx2, dy2);
+      const R = m * 0.2;
+      if (d < R && d > 0.001) {
+        const k = (1 - d / R) * warp;
+        px2 = x + (dx2 / d) * k * m * 0.035;
+        py2 = y + (dy2 / d) * k * m * 0.035;
+        boost = k;
+      }
+    }
+
+    const col = fr < 0.24 ? "#ffffff" : fr < 0.6 ? a3 : fr < 0.85 ? a1 : a2;
+    const tw = 0.45 + 0.3 * Math.sin(t * (1.1 + fr * 2) * sp + i * 0.71);
+    const alpha = clamp((0.16 + (1 - fr) * 0.5) * tw + boost * 0.5, 0, 0.95);
+    const dot = Math.max(0.7, m * 0.0022 * (1 + (1 - fr) * 1.3) + boost * m * 0.003);
+    if (boost > 0.05) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = rgba(col, alpha);
+      ctx.beginPath();
+      ctx.arc(px2, py2, dot * 1.4, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = rgba(col, alpha);
+      ctx.beginPath();
+      ctx.arc(px2, py2, dot, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  // hypernova rings + streaks
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const nv of st.novas) {
+    const a = (t - nv.t0) / 1.6;
+    const fade = Math.exp(-a * 3.2);
+    for (let k = 0; k < 2; k++) {
+      const ra = clamp(a * 1.25 - k * 0.14, 0, 1.4);
+      if (ra <= 0 || ra >= 1.4) continue;
+      ctx.strokeStyle = rgba(k ? a1 : a3, fade * 0.55);
+      ctx.lineWidth = Math.max(1, m * 0.006 * fade);
+      ctx.beginPath();
+      ctx.arc(cx, cy, ra * m * 0.55, 0, TAU);
+      ctx.stroke();
+    }
+    // radial streaks
+    const nS = 16;
+    for (let k = 0; k < nS; k++) {
+      const sa = (k / nS) * TAU + nv.t0;
+      const r0 = m * (0.05 + a * 0.3);
+      const r1 = r0 + m * 0.06 * fade;
+      ctx.strokeStyle = rgba(a3, fade * 0.4);
+      ctx.lineWidth = Math.max(0.8, m * 0.002 * fade + 0.4);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(sa) * r0, cy + Math.sin(sa) * r0);
+      ctx.lineTo(cx + Math.cos(sa) * r1, cy + Math.sin(sa) * r1);
+      ctx.stroke();
+    }
+    // core flash
+    if (a < 0.5) {
+      softOrb(ctx, cx, cy, m * 0.16 * fade, "#ffffff", fade * 0.3);
+    }
+  }
+  ctx.restore();
+
+  const vg = ctx.createRadialGradient(cx, cy, m * 0.4, cx, cy, Math.max(w, h) * 0.85);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.45), 0.5));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
 /* registry                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -4306,4 +5141,8 @@ export const INTERACTIVE_ENGINES = {
   neonRain,
   whaleSong,
   paperCranes,
+  murmuration,
+  gravityWells,
+  spiritOrchids,
+  galaxySpinner,
 } as const;

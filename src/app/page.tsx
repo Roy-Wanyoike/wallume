@@ -113,7 +113,7 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
         </FadeIn>
         <FadeIn delay={0.16}>
           <p className="mx-auto mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-            370+ interactive scenes — fish that scatter, snow you can stir, a whale that
+            410+ interactive scenes — fish that scatter, snow you can stir, a whale that
             follows your finger. Tune palette, motion and glow in real time, then export a
             crisp high-resolution wallpaper — or a looping live video — sized exactly for
             your phone, tablet or desktop.
@@ -326,7 +326,7 @@ function SiteFooter() {
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-4 text-sm text-muted-foreground sm:flex-row">
         <p className="flex items-center gap-2">
           <span className="font-semibold text-foreground">Wallume</span>
-          <span className="version-chip">v2.5</span>
+          <span className="version-chip">v2.6</span>
           <span className="hidden sm:inline">— interactive wallpapers, painted by code.</span>
         </p>
         <nav aria-label="Footer" className="flex items-center gap-4">
