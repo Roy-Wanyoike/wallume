@@ -48,6 +48,7 @@ type Props = {
   onPatch: (patch: Partial<WallpaperConfig>) => void;
   onReset: () => void;
   onRandomize: () => void;
+  onPickForNow: () => void;
 };
 
 function useClock() {
@@ -227,6 +228,7 @@ export function Studio({
   onPatch,
   onReset,
   onRandomize,
+  onPickForNow,
 }: Props) {
   return (
     <section id="studio" className="mx-auto w-full max-w-6xl scroll-mt-20 px-4">
@@ -349,6 +351,7 @@ export function Studio({
             onPatch={onPatch}
             onReset={onReset}
             onRandomize={onRandomize}
+            onPickForNow={onPickForNow}
           />
         </div>
       </div>

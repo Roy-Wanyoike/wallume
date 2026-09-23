@@ -20,6 +20,7 @@ import {
   toPresetPayload,
 } from "@/lib/wallpapers/render";
 import { fnv1a } from "@/lib/wallpapers/helpers";
+import { pickForNowId } from "@/lib/wallpapers/time-pick";
 import type { StatsMap, WallpaperConfig, WallpaperDef } from "@/lib/wallpapers/types";
 import { Studio } from "./studio";
 import type { DeviceMode } from "./studio";
@@ -120,6 +121,20 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     setConfig(randomConfig(next));
     toast({ title: `${next.icon} ${next.name}`, description: next.tagline });
   }, [def.id, toast]);
+
+  /** Pick a scene whose mood matches the current hour — stable per hour. */
+  const pickForNow = useCallback(() => {
+    const validIds = new Set(WALLPAPERS.map((wp) => wp.id));
+    const { id, bucket } = pickForNowId(new Date().getHours(), validIds);
+    const next = id ? getWallpaper(id) : WALLPAPERS[Math.floor(Math.random() * WALLPAPERS.length)];
+    setDef(next);
+    setConfig(randomConfig(next));
+    document.getElementById("studio")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    toast({
+      title: `${bucket.label} pick — ${next.icon} ${next.name}`,
+      description: next.tagline,
+    });
+  }, [toast]);
 
   /* --------------------------- community remix --------------------------- */
 
@@ -368,6 +383,10 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         case "D":
           setDownloadOpen(true);
           break;
+        case "n":
+        case "N":
+          pickForNow();
+          break;
         case "t":
         case "T":
           setAutoTour((v) => {
@@ -400,7 +419,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [def, toast]);
+  }, [def, pickForNow, toast]);
 
   return (
     <>
@@ -437,6 +456,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         onPatch={patch}
         onReset={reset}
         onRandomize={randomize}
+        onPickForNow={pickForNow}
         />
       </div>
 

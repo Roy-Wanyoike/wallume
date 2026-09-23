@@ -5109,6 +5109,826 @@ const galaxySpinner: DrawFn = (ctx, w, h, t, p, env) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* 33 · Sand Garden — drag rakes the sand, tap drops a pebble          */
+/* ------------------------------------------------------------------ */
+
+type GroovePt = { x: number; y: number; ang: number; born: number };
+type Pebble = { x: number; y: number; r: number; t0: number };
+type SandState = {
+  grooves: GroovePt[];
+  pebbles: Pebble[];
+  last: { x: number; y: number } | null;
+  grains: { x: number; y: number; ph: number }[];
+  stones: { x: number; y: number; rx: number; ry: number; rot: number; tone: number }[];
+};
+
+const sandGarden: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const rnd = mulberry32(p.seed);
+  const sp = p.speed;
+
+  // sand bed
+  fillBg(ctx, w, h, bg1, shade(bg0, -0.12));
+
+  const st = canvasState<SandState>(
+    ctx,
+    `sand${p.seed}|${p.density}`,
+    () => {
+      const stones: { x: number; y: number; rx: number; ry: number; rot: number; tone: number }[] = [];
+      const nStones = Math.round(clamp(3 * p.density + rnd(), 2, 5));
+      for (let i = 0; i < nStones; i++) {
+        stones.push({
+          x: w * (0.16 + rnd() * 0.68),
+          y: h * (0.16 + rnd() * 0.62),
+          rx: m * (0.05 + rnd() * 0.075),
+          ry: m * (0.035 + rnd() * 0.05),
+          rot: rnd() * Math.PI,
+          tone: rnd(),
+        });
+      }
+      const grains = [];
+      const nG = Math.round(clamp(90 * p.density * areaScale(w, h), 40, 150));
+      for (let i = 0; i < nG; i++) grains.push({ x: rnd() * w, y: rnd() * h, ph: rnd() * TAU });
+      return { grooves: [] as GroovePt[], pebbles: [] as Pebble[], last: null, grains, stones };
+    },
+  );
+  const stones = st.stones;
+
+  const ptr = pointerPx(env, w, h);
+
+  // ambient rake waves — slow sinuous rows the garden "keeps combed"
+  const rows = Math.round(clamp(9 * p.density, 6, 13));
+  ctx.save();
+  for (let i = 0; i < rows; i++) {
+    const baseY = ((i + 0.5) / rows) * h;
+    const drift = Math.sin(t * 0.12 * sp + i * 1.3) * m * 0.012;
+    ctx.strokeStyle = rgba(shade(bg1, -0.16), 0.34);
+    ctx.lineWidth = Math.max(1, m * 0.004);
+    ctx.beginPath();
+    for (let x = 0; x <= w + 8; x += Math.max(8, w / 40)) {
+      const y = baseY + drift + Math.sin(x * 0.008 / (m / 400) + i * 0.9 + t * 0.1 * sp) * m * 0.014;
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // user raked grooves — 3-parallel furrows with a lit ridge above
+  if (env && ptr && ptr.down) {
+    if (!st.last || Math.hypot(ptr.x - st.last.x, ptr.y - st.last.y) > m * 0.006) {
+      const ang = st.last ? Math.atan2(ptr.y - st.last.y, ptr.x - st.last.x) : t;
+      st.grooves.push({ x: ptr.x, y: ptr.y, ang, born: t });
+      if (st.grooves.length > 420) st.grooves.splice(0, st.grooves.length - 420);
+      st.last = { x: ptr.x, y: ptr.y };
+    }
+  } else if (st.last) st.last = null;
+  // fade very old grooves so the garden slowly "sweeps itself"
+  st.grooves = st.grooves.filter((g) => t - g.born < 46);
+  ctx.save();
+  for (const g of st.grooves) {
+    const age = (t - g.born) / 46;
+    const alpha = 0.5 * (1 - age * age);
+    const ca = Math.cos(g.ang);
+    const sa = Math.sin(g.ang);
+    const gap = m * 0.008;
+    for (let k = -1; k <= 1; k++) {
+      const ox = -sa * gap * k;
+      const oy = ca * gap * k;
+      ctx.strokeStyle = rgba(shade(bg1, -0.28), alpha);
+      ctx.lineWidth = Math.max(0.8, m * 0.0022);
+      ctx.beginPath();
+      ctx.moveTo(g.x + ox - ca * m * 0.006, g.y + oy - sa * m * 0.006);
+      ctx.lineTo(g.x + ox + ca * m * 0.006, g.y + oy + sa * m * 0.006);
+      ctx.stroke();
+      ctx.strokeStyle = rgba(shade(bg1, 0.14), alpha * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(g.x + ox - sa * gap * 0.9 - ca * m * 0.006, g.y + oy + ca * gap * 0.9 - sa * m * 0.006);
+      ctx.lineTo(g.x + ox - sa * gap * 0.9 + ca * m * 0.006, g.y + oy + ca * gap * 0.9 + sa * m * 0.006);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // stones with pre-baked concentric rake rings
+  for (const s of stones) {
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(s.rot);
+    // rings
+    for (let k = 1; k <= 3; k++) {
+      ctx.strokeStyle = rgba(shade(bg1, -0.2), 0.3);
+      ctx.lineWidth = Math.max(0.8, m * 0.002);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, s.rx + k * m * 0.022, s.ry + k * m * 0.022, 0, 0, TAU);
+      ctx.stroke();
+    }
+    // shadow
+    ctx.fillStyle = rgba(shade(bg0, -0.5), 0.35);
+    ctx.beginPath();
+    ctx.ellipse(m * 0.012, m * 0.016, s.rx, s.ry, 0, 0, TAU);
+    ctx.fill();
+    // body
+    const body = ctx.createRadialGradient(-s.rx * 0.35, -s.ry * 0.45, s.ry * 0.2, 0, 0, s.rx * 1.2);
+    const tone = s.tone > 0.5 ? shade(a1, -0.35) : shade(a3, -0.42);
+    body.addColorStop(0, shade(tone, 0.22));
+    body.addColorStop(0.65, tone);
+    body.addColorStop(1, shade(tone, -0.3));
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, s.rx, s.ry, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // pebbles dropped on tap + sand rings
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.pebbles.push({ x: tap.x * w, y: tap.y * h, r: m * (0.012 + mulberry32(Math.floor(tap.x * 977 + t * 31))() * 0.014), t0: t });
+      if (st.pebbles.length > 14) st.pebbles.splice(0, st.pebbles.length - 14);
+    }
+  }
+  ctx.save();
+  for (const pb of st.pebbles) {
+    const age = t - pb.t0;
+    // settling rings
+    for (let k = 0; k < 3; k++) {
+      const a = clamp(age * 1.4 - k * 0.22, 0, 1);
+      if (a <= 0 || a >= 1) continue;
+      ctx.strokeStyle = rgba(a3, (1 - a) * 0.4);
+      ctx.lineWidth = Math.max(0.8, m * 0.002);
+      ctx.beginPath();
+      ctx.ellipse(pb.x, pb.y, pb.r + a * m * 0.13, (pb.r + a * m * 0.13) * 0.62, 0, 0, TAU);
+      ctx.stroke();
+    }
+    // pebble
+    ctx.fillStyle = rgba(shade(a2, -0.15), 0.95);
+    ctx.beginPath();
+    ctx.ellipse(pb.x, pb.y, pb.r, pb.r * 0.8, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = rgba("#ffffff", 0.25);
+    ctx.beginPath();
+    ctx.ellipse(pb.x - pb.r * 0.25, pb.y - pb.r * 0.3, pb.r * 0.35, pb.r * 0.22, 0, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // sand grains shimmer
+  ctx.save();
+  for (const g of st.grains) {
+    const tw = 0.12 + 0.14 * Math.sin(t * 0.9 * sp + g.ph);
+    ctx.fillStyle = rgba(a3, tw);
+    ctx.fillRect(g.x, g.y, 1.4, 1.4);
+  }
+  ctx.restore();
+
+  // warm light pool drifting (late-afternoon courtyard)
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * (0.72 + Math.sin(t * 0.05 * sp) * 0.08), h * 0.12, m * 0.55, a2, 0.05 + p.glow * 0.03);
+  ctx.restore();
+};
+
+/* ------------------------------------------------------------------ */
+/* 34 · Bonsai Grow — hold to grow new branches, tap bursts leaves     */
+/* ------------------------------------------------------------------ */
+
+type GrowBranch = { pts: { x: number; y: number }[]; done: boolean };
+type LeafPart = { x: number; y: number; vx: number; vy: number; rot: number; vr: number; t0: number; c: number };
+type BonsaiState = {
+  trunk: { x: number; y: number; r: number }[];
+  pads: { x: number; y: number; r: number; tone: number }[];
+  grows: GrowBranch[];
+  leaves: LeafPart[];
+  pot: { x: number; y: number; tw: number; bw: number; hgt: number };
+};
+
+const bonsaiGrow: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const rnd = mulberry32(p.seed);
+  const sp = p.speed;
+
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<BonsaiState>(ctx, `bonsai${p.seed}|${p.density}`, () => {
+    const potY = h * 0.86;
+    const potX = w / 2;
+    const pot = { x: potX, y: potY, tw: m * 0.3, bw: m * 0.2, hgt: m * 0.11 };
+    // tapered trunk — gentle S with branches recorded as pads at tips
+    const trunk: { x: number; y: number; r: number }[] = [];
+    let x = potX;
+    let y = potY - pot.hgt;
+    let ang = -Math.PI / 2 + (rnd() - 0.5) * 0.3;
+    let r = m * 0.026;
+    const segs = 26;
+    for (let i = 0; i < segs; i++) {
+      trunk.push({ x, y, r });
+      ang += (rnd() - 0.5) * 0.34 + Math.sin(i * 0.7) * 0.1;
+      const len = m * 0.026;
+      x += Math.cos(ang) * len;
+      y += Math.sin(ang) * len;
+      r *= 0.955;
+    }
+    const pads: { x: number; y: number; r: number; tone: number }[] = [];
+    const top = trunk[trunk.length - 1];
+    pads.push({ x: top.x, y: top.y, r: m * 0.11, tone: rnd() });
+    // two side branches from mid-trunk
+    for (const side of [-1, 1]) {
+      const from = trunk[Math.floor(segs * (side < 0 ? 0.42 : 0.6))];
+      let bx = from.x;
+      let by = from.y;
+      let bang = -Math.PI / 2 + side * (0.9 + rnd() * 0.3);
+      const segsB = 12;
+      for (let i = 0; i < segsB; i++) {
+        trunk.push({ x: bx, y: by, r: m * 0.011 * (1 - i / segsB) + 1.2 });
+        bang += (rnd() - 0.5) * 0.3;
+        const len = m * 0.02;
+        bx += Math.cos(bang) * len;
+        by += Math.sin(bang) * len;
+      }
+      pads.push({ x: bx, y: by, r: m * 0.085, tone: rnd() });
+    }
+    return { trunk, pads, grows: [] as GrowBranch[], leaves: [] as LeafPart[], pot };
+  });
+
+  const ptr = pointerPx(env, w, h);
+
+  // mist + light
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.76, h * 0.14, m * 0.5, a2, 0.05 + p.glow * 0.03);
+  softOrb(ctx, w * 0.2, h * 0.3, m * 0.4, a1, 0.04);
+  ctx.restore();
+
+  // pot
+  const pot = st.pot;
+  ctx.fillStyle = rgba(shade(a3, -0.55), 0.98);
+  ctx.beginPath();
+  ctx.moveTo(pot.x - pot.tw / 2, pot.y - pot.hgt);
+  ctx.lineTo(pot.x + pot.tw / 2, pot.y - pot.hgt);
+  ctx.lineTo(pot.x + pot.bw / 2, pot.y);
+  ctx.lineTo(pot.x - pot.bw / 2, pot.y);
+  ctx.closePath();
+  ctx.fill();
+  // rim + feet + soil
+  ctx.fillStyle = rgba(shade(a3, -0.35), 0.95);
+  ctx.fillRect(pot.x - pot.tw / 2 - m * 0.012, pot.y - pot.hgt - m * 0.016, pot.tw + m * 0.024, m * 0.02);
+  ctx.fillStyle = rgba("#2a1f16", 0.9);
+  ctx.beginPath();
+  ctx.ellipse(pot.x, pot.y - pot.hgt, pot.tw * 0.46, m * 0.012, 0, 0, TAU);
+  ctx.fill();
+
+  // trunk (tapered)
+  ctx.lineCap = "round";
+  for (let i = 1; i < st.trunk.length; i++) {
+    const a = st.trunk[i - 1];
+    const b = st.trunk[i];
+    ctx.strokeStyle = i % 3 === 0 ? rgba(shade("#5a4636", 0.08), 0.9) : rgba("#4a3a2c", 0.92);
+    ctx.lineWidth = Math.max(1.2, b.r);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  }
+
+  // foliage pads — layered leaf clusters with blossoms
+  const drawPad = (px: number, py: number, pr: number, tone: number, grow = 1) => {
+    const rr = pr * grow;
+    const leaves = Math.round(clamp(16 * p.density, 9, 26));
+    for (let i = 0; i < leaves; i++) {
+      const a2v = (i / leaves) * TAU + tone * 3;
+      const rad = rr * (0.3 + ((i * 7919) % 100) / 100 * 0.7);
+      const lx = px + Math.cos(a2v) * rad * (1 + Math.sin(t * 0.7 * sp + i) * 0.03);
+      const ly = py + Math.sin(a2v) * rad * 0.8;
+      const dot = Math.max(1.2, rr * 0.14);
+      ctx.fillStyle = i % 4 === 0 ? rgba(shade(a2, -0.12), 0.92) : rgba(a1, 0.9);
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, dot, dot * 0.72, a2v, 0, TAU);
+      ctx.fill();
+    }
+    // blossom specks
+    for (let i = 0; i < 4; i++) {
+      const ba = (i / 4) * TAU + tone * 7 + t * 0.1;
+      ctx.fillStyle = rgba(a3, 0.75);
+      ctx.beginPath();
+      ctx.arc(px + Math.cos(ba) * rr * 0.5, py + Math.sin(ba) * rr * 0.4, Math.max(1, rr * 0.05), 0, TAU);
+      ctx.fill();
+    }
+  };
+  for (const pad of st.pads) drawPad(pad.x, pad.y, pad.r, pad.tone);
+
+  // growing branches — hold the pointer, a branch reaches for it
+  if (env && ptr && ptr.down && st.grows.length < 7) {
+    // start a new branch from the nearest trunk point when pressing fresh
+    const active = st.grows.find((g) => !g.done);
+    if (!active) {
+      let best = st.trunk[0];
+      let bd = Infinity;
+      for (const tp of st.trunk) {
+        const d = Math.hypot(tp.x - ptr.x, tp.y - ptr.y);
+        if (d < bd) {
+          bd = d;
+          best = tp;
+        }
+      }
+      st.grows.push({ pts: [{ x: best.x, y: best.y }], done: false });
+    }
+  }
+  for (const g of st.grows) {
+    if (g.done) continue;
+    const tip = g.pts[g.pts.length - 1];
+    const target = ptr ?? { x: w * (0.5 + Math.sin(t * 0.3) * 0.3), y: h * 0.3 };
+    const dx = target.x - tip.x;
+    const dy = target.y - tip.y;
+    const dist = Math.hypot(dx, dy) || 0.001;
+    const step = m * 0.02 * (0.8 + p.speed * 0.4);
+    const curl = Math.sin(t * 5 + g.pts.length) * 0.35;
+    const ang = Math.atan2(dy, dx) + curl * 0.2;
+    const nx = tip.x + Math.cos(ang) * Math.min(step, dist);
+    const ny = tip.y + Math.sin(ang) * Math.min(step, dist);
+    g.pts.push({ x: nx, y: ny });
+    if (g.pts.length > 26 || dist < m * 0.02 || !(env && ptr && ptr.down)) {
+      g.done = true;
+      // sprout a pad at the tip
+      st.pads.push({ x: nx, y: ny, r: m * (0.05 + rnd() * 0.04), tone: rnd() });
+      if (st.pads.length > 14) st.pads.splice(1, 1);
+    }
+    // draw growing stem
+    ctx.strokeStyle = rgba("#5a4636", 0.9);
+    ctx.lineCap = "round";
+    for (let i = 1; i < g.pts.length; i++) {
+      ctx.lineWidth = Math.max(1, 3.4 * (1 - i / g.pts.length));
+      ctx.beginPath();
+      ctx.moveTo(g.pts[i - 1].x, g.pts[i - 1].y);
+      ctx.lineTo(g.pts[i].x, g.pts[i].y);
+      ctx.stroke();
+    }
+    // tip glow while alive
+    if (!g.done && env) glowDot(ctx, nx, ny, m * 0.006, a3, 10 * p.glow, 0.8);
+  }
+
+  // leaf bursts on tap
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      // burst from nearest pad
+      let best = st.pads[0];
+      let bd = Infinity;
+      for (const pad of st.pads) {
+        const d = Math.hypot(pad.x - tap.x * w, pad.y - tap.y * h);
+        if (d < bd) {
+          bd = d;
+          best = pad;
+        }
+      }
+      const n = Math.round(14 * clamp(p.density, 0.5, 1.5));
+      for (let i = 0; i < n; i++) {
+        const ang = rnd() * TAU;
+        const spd = m * (0.05 + rnd() * 0.12);
+        st.leaves.push({
+          x: best.x,
+          y: best.y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - m * 0.04,
+          rot: rnd() * TAU,
+          vr: (rnd() - 0.5) * 4,
+          t0: t + rnd() * 0.1,
+          c: 1 + Math.floor(rnd() * 2),
+        });
+      }
+      if (st.leaves.length > 160) st.leaves.splice(0, st.leaves.length - 160);
+    }
+  }
+  st.leaves = st.leaves.filter((l) => t - l.t0 < 2.6);
+  for (const l of st.leaves) {
+    const age = t - l.t0;
+    if (age < 0) continue;
+    const drag = Math.exp(-age * 1.6);
+    const sway = Math.sin(t * 3 + l.rot) * m * 0.01;
+    const x = l.x + l.vx * age * drag + sway;
+    const y = l.y + l.vy * age * drag + m * 0.06 * age * age;
+    const alpha = clamp(1 - age / 2.6, 0, 1) * 0.9;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(l.rot + l.vr * age);
+    ctx.fillStyle = rgba(l.c === 1 ? a1 : a2, alpha);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, m * 0.011, m * 0.006, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // hold indicator ring
+  if (env && ptr && ptr.down) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const pulse = 0.5 + 0.5 * Math.sin(t * 6);
+    ctx.strokeStyle = rgba(a3, 0.35 + pulse * 0.25);
+    ctx.lineWidth = Math.max(1, m * 0.004);
+    ctx.beginPath();
+    ctx.arc(ptr.x, ptr.y, m * (0.028 + pulse * 0.008), 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // vignette
+  const vg = ctx.createRadialGradient(w / 2, h * 0.45, m * 0.4, w / 2, h * 0.5, Math.max(w, h) * 0.85);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.4), 0.45));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 35 · Candle Sanctuary — sweep bends the flames, tap raises sparks   */
+/* ------------------------------------------------------------------ */
+
+type CandleDef2 = { x: number; hgt: number; wid: number; ph: number };
+type Spark = { x: number; y: number; vx: number; vy: number; t0: number; c: number };
+type CandleState = { candles: CandleDef2[]; sparks: Spark[]; flare: number };
+
+const candleSanctuary: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const rnd = mulberry32(p.seed);
+  const sp = p.speed;
+
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<CandleState>(ctx, `candle${p.seed}|${p.density}`, () => {
+    const n = Math.round(clamp(6 * p.density * areaScale(w, h), 3, 9));
+    const candles: CandleDef2[] = [];
+    for (let i = 0; i < n; i++) {
+      candles.push({
+        x: w * (0.12 + (i / Math.max(1, n - 1)) * 0.76 + (rnd() - 0.5) * 0.06),
+        hgt: m * (0.09 + rnd() * 0.13),
+        wid: m * (0.028 + rnd() * 0.02),
+        ph: rnd() * TAU,
+      });
+    }
+    return { candles, sparks: [] as Spark[], flare: 0 };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+  const floor = h * 0.82;
+
+  // room ambience — one big breathing halo
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const breathe = 0.5 + 0.5 * Math.sin(t * 0.5 * sp);
+  softOrb(ctx, w / 2, floor - m * 0.14, m * (0.7 + breathe * 0.08), a2, 0.06 + p.glow * 0.04);
+  ctx.restore();
+
+  // dust motes
+  ctx.save();
+  for (let i = 0; i < 22; i++) {
+    const mx = ((i * 173) % 100) / 100 * w + Math.sin(t * 0.2 + i) * m * 0.02;
+    const my = h * 0.15 + (((i * 61) % 100) / 100) * h * 0.55 + Math.sin(t * 0.14 + i * 2.1) * m * 0.015;
+    ctx.fillStyle = rgba(a3, 0.08 + 0.07 * Math.sin(t * 0.8 + i * 1.7));
+    ctx.beginPath();
+    ctx.arc(mx, my, Math.max(0.6, m * 0.0022), 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // wind — pointer velocity bends flames; proximity makes them gutter
+  let wind = 0;
+  if (ptr) {
+    wind = clamp(ptr.vx / (m * 2.2), -1, 1) * (0.5 + Math.min(1, ptr.speed * 2.5) * 0.7);
+  }
+
+  // candles
+  for (const c of st.candles) {
+    const topY = floor - c.hgt;
+    // wax body
+    const wax = ctx.createLinearGradient(c.x - c.wid / 2, topY, c.x + c.wid / 2, floor);
+    wax.addColorStop(0, "#f3ead8");
+    wax.addColorStop(0.55, "#e5d7bf");
+    wax.addColorStop(1, "#c8b598");
+    ctx.fillStyle = wax;
+    ctx.beginPath();
+    const r0 = c.wid * 0.32;
+    ctx.moveTo(c.x - c.wid / 2, floor);
+    ctx.lineTo(c.x - c.wid / 2, topY + r0);
+    ctx.quadraticCurveTo(c.x - c.wid / 2, topY, c.x - c.wid / 2 + r0, topY);
+    ctx.lineTo(c.x + c.wid / 2 - r0, topY);
+    ctx.quadraticCurveTo(c.x + c.wid / 2, topY, c.x + c.wid / 2, topY + r0);
+    ctx.lineTo(c.x + c.wid / 2, floor);
+    ctx.closePath();
+    ctx.fill();
+    // drips
+    ctx.fillStyle = rgba("#f7efe0", 0.85);
+    for (let d = 0; d < 2; d++) {
+      const dx2 = c.x + (d ? 1 : -1) * c.wid * 0.34;
+      const dy2 = topY + c.hgt * (0.12 + ((d * 7 + c.ph * 10) % 1) * 0.3);
+      ctx.beginPath();
+      ctx.ellipse(dx2, dy2, c.wid * 0.14, c.wid * 0.3, 0, 0, TAU);
+      ctx.fill();
+    }
+    // rim
+    ctx.fillStyle = rgba("#fff8ea", 0.5);
+    ctx.beginPath();
+    ctx.ellipse(c.x, topY + 0.5, c.wid * 0.5, c.wid * 0.14, 0, 0, TAU);
+    ctx.fill();
+
+    // flame — layered teardrop with flicker + wind lean + pointer gutter
+    const flick = 0.82 + 0.18 * Math.sin(t * (7 + (c.ph % 1) * 3) * sp + c.ph * 5) * Math.sin(t * 2.3 + c.ph);
+    let scale = flick;
+    if (ptr) {
+      const d = Math.hypot(ptr.x - c.x, ptr.y - (topY - m * 0.03)) / m;
+      if (d < 0.14) scale *= 0.68 + 0.32 * clamp(d / 0.14, 0, 1) + (ptr.down ? -0.08 : 0);
+    }
+    let lean = wind * 0.9 + Math.sin(t * 1.7 * sp + c.ph) * 0.07;
+    if (ptr) {
+      // gentle push away from a close fast cursor
+      const dxp = c.x - ptr.x;
+      const dyp = topY - m * 0.03 - ptr.y;
+      const dp = Math.hypot(dxp, dyp);
+      if (dp < m * 0.16 && dp > 0.001) lean += (dxp / dp) * clamp(1 - dp / (m * 0.16), 0, 1) * 0.55;
+    }
+    st.flare = Math.max(0, st.flare - dt * 2.4);
+    const fh = c.hgt * 0.34 * scale * (1 + st.flare * 0.5);
+    const fw = c.wid * 0.42 * scale;
+    const fx = c.x + lean * fh * 0.9;
+    const fy = topY - m * 0.008;
+
+    // halo
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    softOrb(ctx, fx, fy - fh * 0.4, fh * 2.6, a2, (0.16 + p.glow * 0.12) * scale);
+    // outer flame
+    ctx.fillStyle = rgba(a2, 0.85);
+    ctx.beginPath();
+    ctx.moveTo(c.x, fy);
+    ctx.quadraticCurveTo(c.x - fw * 1.4, fy - fh * 0.5, fx, fy - fh);
+    ctx.quadraticCurveTo(c.x + fw * 1.4, fy - fh * 0.5, c.x, fy);
+    ctx.fill();
+    // inner flame
+    ctx.fillStyle = rgba(a1, 0.9);
+    ctx.beginPath();
+    ctx.moveTo(c.x, fy);
+    ctx.quadraticCurveTo(c.x - fw * 0.7, fy - fh * 0.32, c.x + lean * fh * 0.5, fy - fh * 0.62);
+    ctx.quadraticCurveTo(c.x + fw * 0.7, fy - fh * 0.32, c.x, fy);
+    ctx.fill();
+    // core
+    ctx.fillStyle = rgba("#fff6e0", 0.9);
+    ctx.beginPath();
+    ctx.ellipse(c.x + lean * fh * 0.24, fy - fh * 0.3, fw * 0.3, fh * 0.22, 0, 0, TAU);
+    ctx.fill();
+    // blue base
+    ctx.fillStyle = rgba("#7ab8d8", 0.5);
+    ctx.beginPath();
+    ctx.ellipse(c.x, fy - fh * 0.06, fw * 0.36, fh * 0.08, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    // wick
+    ctx.strokeStyle = rgba("#1a120a", 0.9);
+    ctx.lineWidth = Math.max(1, m * 0.0025);
+    ctx.beginPath();
+    ctx.moveTo(c.x, topY);
+    ctx.lineTo(c.x, fy + 1);
+    ctx.stroke();
+
+    // floor reflection
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    softOrb(ctx, c.x, floor + m * 0.03, fh * 1.6, a2, 0.1 * scale);
+    ctx.restore();
+  }
+
+  // shelf
+  const sg = ctx.createLinearGradient(0, floor, 0, h);
+  sg.addColorStop(0, rgba(shade(bg1, -0.1), 1));
+  sg.addColorStop(1, rgba(shade(bg0, -0.3), 1));
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, floor, w, h - floor);
+
+  // tap → sparks from nearest candle + flare
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.flare = Math.min(1, st.flare + 0.6);
+      let best = st.candles[0];
+      let bd = Infinity;
+      for (const c of st.candles) {
+        const d = Math.abs(c.x - tap.x * w);
+        if (d < bd) {
+          bd = d;
+          best = c;
+        }
+      }
+      const n = Math.round(16 * clamp(p.density, 0.5, 1.5));
+      for (let i = 0; i < n; i++) {
+        const ang = -Math.PI / 2 + (rnd() - 0.5) * 1.6;
+        const spd = m * (0.08 + rnd() * 0.22);
+        st.sparks.push({
+          x: best.x,
+          y: floor - best.hgt - m * 0.02,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd,
+          t0: t + rnd() * 0.12,
+          c: 2 + Math.floor(rnd() * 2),
+        });
+      }
+      if (st.sparks.length > 120) st.sparks.splice(0, st.sparks.length - 120);
+    }
+  }
+  st.sparks = st.sparks.filter((s) => t - s.t0 < 1.1);
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const s of st.sparks) {
+    const age = t - s.t0;
+    if (age < 0) continue;
+    const x = s.x + s.vx * age;
+    const y = s.y + s.vy * age + m * 0.02 * age * age;
+    const alpha = clamp(1 - age / 1.1, 0, 1);
+    glowDot(ctx, x, y, Math.max(0.8, m * 0.003 * (1 - age)), p.colors[s.c], 8 * p.glow, alpha * 0.9);
+  }
+  ctx.restore();
+};
+
+/* ------------------------------------------------------------------ */
+/* 36 · Stained Glass — panes ignite around the cursor, tap = shafts   */
+/* ------------------------------------------------------------------ */
+
+type Pane = {
+  pts: { x: number; y: number }[];
+  cx: number;
+  cy: number;
+  cIdx: number;
+  ph: number;
+  ring: number;
+};
+type GlassState = { panes: Pane[]; flashes: { t0: number }[] };
+
+const stainedGlass: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  fillBg(ctx, w, h, shade(bg0, -0.15), bg1);
+
+  const st = canvasState<GlassState>(ctx, `glass${p.seed}|${p.density}`, () => {
+    const panes: Pane[] = [];
+    const rndG = mulberry32(p.seed);
+    const RINGS = 4;
+    const base = m * 0.46;
+    for (let ring = 0; ring < RINGS; ring++) {
+      const count = 8 + ring * 6;
+      const rIn = (base * (ring + 0.45)) / RINGS;
+      const rOut = (base * (ring + 1.02)) / RINGS;
+      for (let i = 0; i < count; i++) {
+        const a0 = (i / count) * TAU;
+        const a1v = ((i + 1) / count) * TAU;
+        const wobbleIn = 1 + Math.sin(i * 2.7 + ring) * 0.04;
+        const wobbleOut = 1 + Math.cos(i * 1.9 + ring * 2) * 0.04;
+        const pts = [
+          { x: cx + Math.cos(a0) * rIn * wobbleIn, y: cy + Math.sin(a0) * rIn * wobbleIn },
+          { x: cx + Math.cos(a1v) * rIn * wobbleIn, y: cy + Math.sin(a1v) * rIn * wobbleIn },
+          { x: cx + Math.cos(a1v) * rOut * wobbleOut, y: cy + Math.sin(a1v) * rOut * wobbleOut },
+          { x: cx + Math.cos(a0) * rOut * wobbleOut, y: cy + Math.sin(a0) * rOut * wobbleOut },
+        ];
+        panes.push({
+          pts,
+          cx: (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4,
+          cy: (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4,
+          cIdx: (i + ring) % 3,
+          ph: rndG() * TAU,
+          ring,
+        });
+      }
+    }
+    return { panes, flashes: [] as { t0: number }[] };
+  });
+
+  const ptr = pointerPx(env, w, h);
+  if (env) {
+    for (let i = 0; i < env.pointer.taps.length; i++) {
+      st.flashes.push({ t0: t });
+      if (st.flashes.length > 3) st.flashes.splice(0, st.flashes.length - 3);
+    }
+  }
+  st.flashes = st.flashes.filter((f) => t - f.t0 < 2.2);
+
+  // backlit glow behind the rose
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, cx, cy, m * 0.5, a2, 0.05 + p.glow * 0.04 + 0.02 * Math.sin(t * 0.5 * sp));
+  ctx.restore();
+
+  const paletteCols = [a1, a2, a3];
+
+  // panes
+  for (const pane of st.panes) {
+    const breathe = 0.32 + 0.14 * Math.sin(t * 0.45 * sp + pane.ph);
+    let lum = breathe;
+    let boost = 0;
+    if (ptr) {
+      const d = Math.hypot(pane.cx - ptr.x, pane.cy - ptr.y);
+      const R = m * 0.24;
+      if (d < R) {
+        boost = (1 - d / R) * (ptr.down ? 1.25 : 0.8);
+        lum += boost * 0.5;
+      }
+    }
+    // tap wave — rings flash outward from the center
+    for (const fl of st.flashes) {
+      const wave = (t - fl.t0) * m * 0.34;
+      const ringR = (pane.ring + 0.75) * (m * 0.115);
+      const dd = Math.abs(ringR - wave);
+      if (dd < m * 0.1) lum += (1 - dd / (m * 0.1)) * 0.55;
+    }
+    const col = paletteCols[pane.cIdx];
+    const lit = clamp(lum, 0.06, 1);
+    ctx.fillStyle = rgba(shade(col, boost > 0.3 ? 0.3 * boost : 0), lit);
+    ctx.beginPath();
+    ctx.moveTo(pane.pts[0].x, pane.pts[0].y);
+    for (let i = 1; i < 4; i++) ctx.lineTo(pane.pts[i].x, pane.pts[i].y);
+    ctx.closePath();
+    ctx.fill();
+    // leading — dark solder lines
+    ctx.strokeStyle = rgba(shade(bg0, -0.5), 0.9);
+    ctx.lineWidth = Math.max(1.4, m * 0.008);
+    ctx.stroke();
+    // inner bevel highlight when lit
+    if (boost > 0.15) {
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = rgba("#ffffff", boost * 0.35);
+      ctx.lineWidth = Math.max(0.8, m * 0.003);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // center rosette
+  ctx.save();
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * TAU + t * 0.05 * sp;
+    ctx.fillStyle = rgba(paletteCols[i % 3], 0.5 + 0.2 * Math.sin(t * 0.8 + i));
+    ctx.beginPath();
+    ctx.ellipse(cx + Math.cos(a) * m * 0.045, cy + Math.sin(a) * m * 0.045, m * 0.042, m * 0.024, a, 0, TAU);
+    ctx.fill();
+  }
+  ctx.fillStyle = rgba("#fff8e8", 0.75);
+  ctx.beginPath();
+  ctx.arc(cx, cy, m * 0.026, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  // tap light shafts radiating from center
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const fl of st.flashes) {
+    const a = (t - fl.t0) / 2.2;
+    const fade = Math.exp(-a * 2.6);
+    if (fade < 0.02) continue;
+    for (let i = 0; i < 10; i++) {
+      const sa = (i / 10) * TAU + fl.t0 * 0.3;
+      const rIn = m * 0.08;
+      const rOut = m * (0.2 + a * 0.42);
+      const g = ctx.createLinearGradient(cx + Math.cos(sa) * rIn, cy + Math.sin(sa) * rIn, cx + Math.cos(sa) * rOut, cy + Math.sin(sa) * rOut);
+      g.addColorStop(0, rgba(a3, 0.35 * fade));
+      g.addColorStop(1, rgba(a3, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(sa - 0.05) * rIn, cy + Math.sin(sa - 0.05) * rIn);
+      ctx.lineTo(cx + Math.cos(sa + 0.05) * rIn, cy + Math.sin(sa + 0.05) * rIn);
+      ctx.lineTo(cx + Math.cos(sa + 0.02) * rOut, cy + Math.sin(sa + 0.02) * rOut);
+      ctx.lineTo(cx + Math.cos(sa - 0.02) * rOut, cy + Math.sin(sa - 0.02) * rOut);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // halo ring
+    ctx.strokeStyle = rgba(a2, fade * 0.4);
+    ctx.lineWidth = Math.max(1, m * 0.005 * fade);
+    ctx.beginPath();
+    ctx.arc(cx, cy, m * (0.1 + a * 0.5), 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // cursor light
+  if (ptr) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    softOrb(ctx, ptr.x, ptr.y, m * 0.1, "#fff4d8", ptr.down ? 0.3 : 0.18);
+    ctx.restore();
+  }
+
+  // vignette — dark church interior
+  const vg = ctx.createRadialGradient(cx, cy, m * 0.42, cx, cy, Math.max(w, h) * 0.8);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.5), 0.55));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
 /* registry                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -5145,4 +5965,8 @@ export const INTERACTIVE_ENGINES = {
   gravityWells,
   spiritOrchids,
   galaxySpinner,
+  sandGarden,
+  bonsaiGrow,
+  candleSanctuary,
+  stainedGlass,
 } as const;

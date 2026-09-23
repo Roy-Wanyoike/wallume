@@ -67,7 +67,9 @@ export type InteractionKind =
   | "bloom"
   | "glow"
   | "magnet"
-  | "parallax";
+  | "parallax"
+  | "rake"
+  | "grow";
 
 export type WallpaperCategory =
   | "Nature"

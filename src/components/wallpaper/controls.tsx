@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Paintbrush, RotateCcw, Search, Shuffle, Wand2, X } from "lucide-react";
+import { Clock, Paintbrush, RotateCcw, Search, Shuffle, Wand2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,6 +32,7 @@ type Props = {
   onPatch: (patch: Partial<WallpaperConfig>) => void;
   onReset: () => void;
   onRandomize: () => void;
+  onPickForNow: () => void;
 };
 
 function SliderRow({
@@ -71,7 +72,7 @@ function SliderRow({
   );
 }
 
-export function StudioControls({ def, config, onDefChange, onPatch, onReset, onRandomize }: Props) {
+export function StudioControls({ def, config, onDefChange, onPatch, onReset, onRandomize, onPickForNow }: Props) {
   const [editColors, setEditColors] = useState(false);
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<"All" | WallpaperCategory>("All");
@@ -107,11 +108,22 @@ export function StudioControls({ def, config, onDefChange, onPatch, onReset, onR
             <Label htmlFor="scene-search" className="text-sm text-foreground/90">
               Wallpaper
             </Label>
-            <Badge variant="secondary" className="text-[11px] tabular-nums">
-              {filtered.length === WALLPAPERS.length
-                ? `${WALLPAPERS.length} live scenes`
-                : `${filtered.length} of ${WALLPAPERS.length}`}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onPickForNow}
+                title="Pick a scene that matches the light outside right now (N)"
+                aria-label="Pick a scene for the current time of day"
+                className="group flex h-7 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 text-[11px] font-medium text-muted-foreground transition-all hover:border-amber-300/40 hover:bg-amber-300/10 hover:text-amber-200"
+              >
+                <Clock className="h-3 w-3 transition-transform group-hover:rotate-[30deg]" />
+                For right now
+              </button>
+              <Badge variant="secondary" className="text-[11px] tabular-nums">
+                {filtered.length === WALLPAPERS.length
+                  ? `${WALLPAPERS.length} live scenes`
+                  : `${filtered.length} of ${WALLPAPERS.length}`}
+              </Badge>
+            </div>
           </div>
 
           <div className="relative">

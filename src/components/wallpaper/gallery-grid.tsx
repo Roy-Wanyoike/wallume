@@ -348,7 +348,7 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
-          {visible.map((wp) => {
+          {visible.map((wp, idx) => {
             const selected = wp.id === selectedId;
             const st = stats[wp.id] ?? { likes: 0, downloads: 0 };
             const liked = likedIds.includes(wp.id);
@@ -358,13 +358,15 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
               <article
                 key={wp.id}
                 className={cn(
-                  "gallery-card-shine group relative overflow-hidden rounded-2xl border bg-zinc-900/60 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl",
+                  "gallery-card-shine card-rise group relative overflow-hidden rounded-2xl border bg-zinc-900/60 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl",
                   selected ? "selected-card border-fuchsia-400/70 shadow-fuchsia-500/20" : "border-white/10 hover:border-white/25",
                 )}
                 style={{
                   // per-card accent glow (used by .gallery-card-shine:hover box-shadow)
                   "--card-a1": wp.palettes[0].colors[2],
                   "--card-a2": wp.palettes[0].colors[3],
+                  // staggered entrance — rows cascade in gently
+                  animationDelay: `${Math.min(idx, 23) * 45}ms`,
                 } as CSSProperties}
               >
                 <button
