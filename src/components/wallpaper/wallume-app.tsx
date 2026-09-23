@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Loader2, X } from "lucide-react";
+import { Check, Copy, Loader2, Share2, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +48,8 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
   const [shareSaving, setShareSaving] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // dialog only renders after user interaction, so a lazy initializer is hydration-safe
+  const [canShare] = useState(() => typeof navigator !== "undefined" && typeof navigator.share === "function");
   const { toast } = useToast();
   const { favorites, toggleFavorite, isFavorite } = useFavorites();
 
@@ -256,6 +258,20 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     }
   }, [shareUrl, toast]);
 
+  /** hand the link to the OS share sheet (Android/iOS) when available */
+  const nativeShare = useCallback(async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.share({
+        title: "Wallume",
+        text: `Check out my “${def.name}” live wallpaper — it even reacts to touch`,
+        url: shareUrl,
+      });
+    } catch {
+      /* user dismissed the share sheet */
+    }
+  }, [shareUrl, def.name]);
+
   /* ----------------------------- fullscreen ----------------------------- */
   useEffect(() => {
     if (!fullscreen) return;
@@ -412,6 +428,15 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
             shareUrl && (
               <div className="flex gap-2">
                 <Input readOnly value={shareUrl} className="font-mono text-xs" aria-label="Share link" />
+                {canShare && (
+                  <Button
+                    className="shrink-0 gap-2 bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white hover:opacity-90"
+                    onClick={nativeShare}
+                  >
+                    <Share2 className="h-4 w-4" />
+                    Share
+                  </Button>
+                )}
                 <Button className="shrink-0 gap-2" onClick={copyShare}>
                   {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   {copied ? "Copied" : "Copy"}

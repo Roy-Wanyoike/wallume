@@ -275,6 +275,17 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
                         <h3 className="truncate text-sm font-semibold text-white">{wp.name}</h3>
                       </div>
                       <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-white/70">{wp.tagline}</p>
+                      {/* deterministic palette swatch dots for this variant */}
+                      <div className="mt-1.5 flex items-center gap-1" aria-hidden>
+                        {wp.palettes[0].colors.slice(2).map((c, i) => (
+                          <span
+                            key={i}
+                            className="h-1.5 w-1.5 rounded-full ring-1 ring-white/30"
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                        <span className="ml-1 h-1.5 w-1.5 rounded-full ring-1 ring-white/30" style={{ backgroundColor: wp.palettes[0].colors[1] }} />
+                      </div>
                       {wp.interact && wp.interact.kind !== "parallax" && (
                         <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[9px] font-medium text-white/85 backdrop-blur">
                           👆 {wp.interact.label}

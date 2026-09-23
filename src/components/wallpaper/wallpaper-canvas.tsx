@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { addTickerTask } from "@/lib/wallpapers/ticker";
 import { renderFrame } from "@/lib/wallpapers/render";
+import { subscribeEco, isEcoOn } from "@/lib/eco-store";
 import type { DrawEnv, PointerEnv, WallpaperConfig, WallpaperDef } from "@/lib/wallpapers/types";
 
 type Props = {
@@ -39,6 +40,10 @@ export function WallpaperCanvas({
   const parallax = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
   const stateRef = useRef({ def, config, maxPixels });
   const taskRef = useRef<{ setPaused: (p: boolean) => void } | null>(null);
+  // eco mode scales fps + pixel budgets down for battery-friendly playback
+  const eco = useSyncExternalStore(subscribeEco, isEcoOn, () => false);
+  const effFps = eco ? Math.max(12, Math.min(fps, 20)) : fps;
+  const effPixels = eco ? Math.round(maxPixels * 0.5) : maxPixels;
   const pointerRef = useRef({
     x: 0.5,
     y: 0.5,
@@ -55,8 +60,8 @@ export function WallpaperCanvas({
 
   // keep the latest props reachable from the ticker without re-subscribing
   useEffect(() => {
-    stateRef.current = { def, config, maxPixels };
-  }, [def, config, maxPixels]);
+    stateRef.current = { def, config, maxPixels: effPixels };
+  }, [def, config, effPixels]);
 
   useEffect(() => {
     taskRef.current?.setPaused(paused);
@@ -157,11 +162,14 @@ export function WallpaperCanvas({
       };
 
       if (interactive && (Math.abs(par.x) > 0.001 || Math.abs(par.y) > 0.001)) {
-        // scale the scene up slightly and offset it so edges never show
+        // scale the scene up slightly and offset it so edges never show.
+        // scale about the canvas CENTER (not the origin) — scaling about the
+        // origin exposed an unpainted strip on the top/left whenever the
+        // pointer offset was positive, freezing ghost trails there.
         const k = 1.06;
         const ox = par.x * size.w * 0.022;
         const oy = par.y * size.h * 0.022;
-        ctx.setTransform(k, 0, 0, k, ox, oy);
+        ctx.setTransform(k, 0, 0, k, ox + (size.w * (1 - k)) / 2, oy + (size.h * (1 - k)) / 2);
         renderFrame(ctx, size.w, size.h, t, d, c, env);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
       } else {
@@ -169,7 +177,7 @@ export function WallpaperCanvas({
       }
       // taps are consumed by the engine this frame
       ptr.taps.length = 0;
-    }, fps);
+    }, effFps);
     taskRef.current = task;
 
     // redraw immediately when config changes
@@ -240,7 +248,7 @@ export function WallpaperCanvas({
         wrap.removeEventListener("pointerleave", onLeave);
       }
     };
-  }, [def.id, interactive, isStatic, fps]);
+  }, [def.id, interactive, isStatic, effFps, eco]);
 
   // react to config changes without rebuilding observers
   useEffect(() => {

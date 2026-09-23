@@ -2097,6 +2097,613 @@ const kaleidoscope: DrawFn = (ctx, w, h, t, p, env) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* 27 · Bioluminescent Tide — touch lights up the water                */
+/* ------------------------------------------------------------------ */
+
+type Plankton = { x0: number; y0: number; ph: number; sp: number; r: number; c: number };
+type BioState = {
+  plankton: Plankton[];
+  trail: { x: number; y: number; t0: number }[];
+  blooms: { x: number; y: number; t0: number }[];
+};
+
+const bioTide: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, shade(bg0, -0.2), bg1);
+
+  // stars over the water
+  const rnd = mulberry32(p.seed);
+  const starN = Math.round(clamp(46 * p.density * areaScale(w, h), 24, 110));
+  ctx.save();
+  for (let i = 0; i < starN; i++) {
+    const sx = rnd() * w;
+    const sy = rnd() * h * 0.5;
+    const tw = 0.35 + 0.65 * Math.abs(Math.sin(t * (0.4 + rnd() * 1.2) * sp + i * 2.7));
+    ctx.fillStyle = rgba("#ffffff", tw * 0.5);
+    ctx.fillRect(sx, sy, 1.2, 1.2);
+  }
+  ctx.restore();
+
+  // low moon haze near the horizon
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.78, h * 0.34, m * 0.34, a2, 0.1 + p.glow * 0.06);
+  ctx.restore();
+
+  const st = canvasState<BioState>(ctx, `bio${p.seed}|${p.density}`, () => {
+    const r = mulberry32(p.seed * 7 + 11);
+    const n = Math.round(clamp(90 * p.density * areaScale(w, h), 40, 190));
+    const plankton: Plankton[] = [];
+    for (let i = 0; i < n; i++) {
+      plankton.push({
+        x0: r(),
+        y0: 0.42 + r() * 0.58,
+        ph: r() * TAU,
+        sp: 0.5 + r() * 1.1,
+        r: 0.9 + r() * 2.1,
+        c: 2 + Math.floor(r() * 3),
+      });
+    }
+    return { plankton, trail: [], blooms: [] };
+  });
+
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    // the finger leaves a bioluminescent wake
+    if (ptr && ptr.speed > 0.05) {
+      st.trail.push({ x: ptr.x, y: ptr.y, t0: t });
+      if (st.trail.length > 90) st.trail.shift();
+    }
+    for (const tap of env.pointer.taps) {
+      st.blooms.push({ x: tap.x * w, y: tap.y * h, t0: t });
+    }
+  }
+
+  // dark wave silhouettes
+  for (let layer = 0; layer < 3; layer++) {
+    const baseY = h * (0.62 + layer * 0.13);
+    const amp = m * (0.02 + layer * 0.012);
+    ctx.fillStyle = rgba(shade(bg1, -0.25 - layer * 0.12), 0.5 + layer * 0.2);
+    ctx.beginPath();
+    ctx.moveTo(0, h);
+    for (let x = 0; x <= w; x += Math.max(6, w / 48)) {
+      const y =
+        baseY +
+        Math.sin(x * 0.012 + t * (0.5 + layer * 0.22) * sp + layer * 2.1) * amp +
+        Math.sin(x * 0.031 - t * 0.8 * sp + layer) * amp * 0.4;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // tap blooms — flare + expanding ring
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  st.blooms = st.blooms.filter((b) => t - b.t0 < 1.3);
+  for (const b of st.blooms) {
+    const age = (t - b.t0) / 1.3;
+    softOrb(ctx, b.x, b.y, m * (0.08 + age * 0.34), a2, (1 - age) * 0.5 * (0.4 + p.glow * 0.5));
+    ctx.strokeStyle = rgba(a3, (1 - age) * 0.5 * (0.5 + p.glow * 0.5));
+    ctx.lineWidth = Math.max(1, m * 0.005 * (1 - age) + 0.4);
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, age * m * 0.3, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // fading wake where the finger dragged
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  st.trail = st.trail.filter((pt) => t - pt.t0 < 1.5);
+  for (const pt of st.trail) {
+    const age = (t - pt.t0) / 1.5;
+    softOrb(ctx, pt.x, pt.y, m * 0.05 * (1 - age * 0.6), a1, (1 - age) * 0.35 * (0.4 + p.glow * 0.6));
+  }
+  ctx.restore();
+
+  // plankton — twinkle, flare and swirl near the pointer
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const pl of st.plankton) {
+    let x = pl.x0 * w + Math.sin(t * 0.22 * sp * pl.sp + pl.ph) * m * 0.05;
+    const y = pl.y0 * h + Math.cos(t * 0.18 * sp * pl.sp + pl.ph * 1.6) * m * 0.03;
+    const glow = 0.16 + 0.2 * Math.abs(Math.sin(t * (0.6 + pl.sp) * sp + pl.ph * 3.1));
+    if (ptr) {
+      const d = Math.hypot(x - ptr.x, y - ptr.y);
+      const R = m * 0.3;
+      if (d < R) {
+        const f = 1 - d / R;
+        const push = clamp(ptr.vx * 0.015, -m * 0.05, m * 0.05);
+        x += Math.cos((d / R) * Math.PI) * push * f;
+        glowDot(
+          ctx,
+          x,
+          y,
+          pl.r * (0.6 + p.glow * 0.5) * (1 + f * 0.8),
+          p.colors[pl.c],
+          6 * p.glow + f * 14,
+          clamp(glow + f * (ptr.down ? 0.9 : 0.5), 0, 1),
+        );
+        continue;
+      }
+    }
+    glowDot(ctx, x, y, pl.r * (0.6 + p.glow * 0.5), p.colors[pl.c], 6 * p.glow, clamp(glow, 0, 1));
+  }
+  ctx.restore();
+
+  // gentle vignette
+  const vg = ctx.createLinearGradient(0, 0, 0, h);
+  vg.addColorStop(0, rgba("#000000", 0.25));
+  vg.addColorStop(0.5, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.35));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 28 · Glass Marbles — hold to gather, tap to scatter                 */
+/* ------------------------------------------------------------------ */
+
+type Marble = {
+  x0: number;
+  y0: number;
+  r: number;
+  ph: number;
+  sp: number;
+  amp: number;
+  c: number;
+  ox: number;
+  oy: number;
+  vx: number;
+  vy: number;
+};
+type MarbleState = { marbles: Marble[]; shock: { x: number; y: number; t0: number }[] };
+
+const glassMarbles: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, bg0, bg1);
+
+  // soft studio backdrop glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.5, h * 0.28, m * 0.7, a2, 0.05 + p.glow * 0.04);
+  ctx.restore();
+
+  // display-case shelf lines
+  ctx.strokeStyle = rgba("#ffffff", 0.04);
+  ctx.lineWidth = 1;
+  const gridStep = m * 0.16;
+  for (let y = gridStep; y < h; y += gridStep) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  const st = canvasState<MarbleState>(ctx, `marble${p.seed}|${p.density}`, () => {
+    const r = mulberry32(p.seed);
+    const n = Math.round(clamp(10 * p.density * areaScale(w, h), 6, 18));
+    const marbles: Marble[] = [];
+    for (let i = 0; i < n; i++) {
+      marbles.push({
+        x0: 0.1 + r() * 0.8,
+        y0: 0.12 + r() * 0.76,
+        r: m * (0.045 + r() * 0.075),
+        ph: r() * TAU,
+        sp: 0.3 + r() * 0.7,
+        amp: m * (0.03 + r() * 0.07),
+        c: 2 + Math.floor(r() * 3),
+        ox: 0,
+        oy: 0,
+        vx: 0,
+        vy: 0,
+      });
+    }
+    return { marbles, shock: [] };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      const tx = tap.x * w;
+      const ty = tap.y * h;
+      st.shock.push({ x: tx, y: ty, t0: t });
+      for (const mb of st.marbles) {
+        const mx = mb.x0 * w + mb.ox;
+        const my = mb.y0 * h + mb.oy;
+        const d = Math.hypot(mx - tx, my - ty);
+        const R = m * 0.45;
+        if (d < R && d > 0.001) {
+          const f = (1 - d / R) * m * 2.2;
+          mb.vx += ((mx - tx) / d) * f;
+          mb.vy += ((my - ty) / d) * f;
+        }
+      }
+    }
+  }
+
+  for (const mb of st.marbles) {
+    // deterministic idle drift (this is what static exports show)
+    const bx = mb.x0 * w + Math.sin(t * 0.35 * sp * mb.sp + mb.ph) * mb.amp;
+    const by = mb.y0 * h + Math.cos(t * 0.28 * sp * mb.sp + mb.ph * 1.4) * mb.amp * 0.7;
+
+    // magnet — marbles roll towards the held pointer
+    if (ptr) {
+      const mx = bx + mb.ox;
+      const my = by + mb.oy;
+      const d = Math.hypot(ptr.x - mx, ptr.y - my);
+      const R = m * 0.5;
+      if (d < R && d > 0.001) {
+        const f = (1 - d / R) * (ptr.down ? 3.2 : 1.4) * m * 0.9;
+        mb.vx += ((ptr.x - mx) / d) * f * dt;
+        mb.vy += ((ptr.y - my) / d) * f * dt;
+      }
+    }
+
+    // integrate with friction + soft wall bounce
+    mb.ox += mb.vx * dt;
+    mb.oy += mb.vy * dt;
+    const fr = Math.exp(-dt * 2.1);
+    mb.vx *= fr;
+    mb.vy *= fr;
+    let px = bx + mb.ox;
+    let py = by + mb.oy;
+    if (px < mb.r) {
+      px = mb.r;
+      mb.ox = mb.r - bx;
+      mb.vx = Math.abs(mb.vx) * 0.72;
+    }
+    if (px > w - mb.r) {
+      px = w - mb.r;
+      mb.ox = w - mb.r - bx;
+      mb.vx = -Math.abs(mb.vx) * 0.72;
+    }
+    if (py < mb.r) {
+      py = mb.r;
+      mb.oy = mb.r - by;
+      mb.vy = Math.abs(mb.vy) * 0.72;
+    }
+    if (py > h - mb.r) {
+      py = h - mb.r;
+      mb.oy = h - mb.r - by;
+      mb.vy = -Math.abs(mb.vy) * 0.72;
+    }
+
+    // glass ball
+    const x = px;
+    const y = py;
+    const r = mb.r;
+    const color = p.colors[mb.c];
+
+    // cast shadow
+    ctx.fillStyle = rgba("#000000", 0.3);
+    ctx.beginPath();
+    ctx.ellipse(x + r * 0.15, y + r * 0.28, r * 0.9, r * 0.55, 0, 0, TAU);
+    ctx.fill();
+
+    // body
+    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+    g.addColorStop(0, rgba(shade(color, 0.55), 0.95));
+    g.addColorStop(0.4, rgba(color, 0.75));
+    g.addColorStop(0.85, rgba(shade(color, -0.35), 0.85));
+    g.addColorStop(1, rgba(shade(color, -0.55), 0.95));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, TAU);
+    ctx.fill();
+
+    // inner swirl ribbon
+    ctx.strokeStyle = rgba(shade(color, 0.4), 0.5);
+    ctx.lineWidth = Math.max(1, r * 0.09);
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.55, t * 0.8 * sp + mb.ph, t * 0.8 * sp + mb.ph + Math.PI * 1.2);
+    ctx.stroke();
+
+    // rim light
+    ctx.strokeStyle = rgba("#ffffff", 0.25);
+    ctx.lineWidth = Math.max(1, r * 0.05);
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.96, 0, TAU);
+    ctx.stroke();
+
+    // specular highlights
+    ctx.fillStyle = rgba("#ffffff", 0.85);
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.34, y - r * 0.42, r * 0.18, r * 0.11, -0.6, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = rgba("#ffffff", 0.3);
+    ctx.beginPath();
+    ctx.arc(x + r * 0.25, y + r * 0.3, r * 0.09, 0, TAU);
+    ctx.fill();
+  }
+
+  // shockwave rings
+  st.shock = st.shock.filter((s) => t - s.t0 < 0.8);
+  for (const s of st.shock) {
+    const age = (t - s.t0) / 0.8;
+    ctx.strokeStyle = rgba("#ffffff", (1 - age) * 0.4);
+    ctx.lineWidth = Math.max(1, m * 0.006 * (1 - age));
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, age * m * 0.4, 0, TAU);
+    ctx.stroke();
+  }
+
+  // vignette
+  const vg = ctx.createRadialGradient(w / 2, h / 2, m * 0.3, w / 2, h / 2, Math.max(w, h) * 0.72);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.5));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 29 · Silk Flow — the fabric drapes towards your cursor              */
+/* ------------------------------------------------------------------ */
+
+type SilkState = { ripples: { x: number; y: number; t0: number }[] };
+
+const silkFlow: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<SilkState>(ctx, `silk${p.seed}`, () => ({ ripples: [] }));
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.ripples.push({ x: tap.x * w, y: tap.y * h, t0: t });
+    }
+  }
+  st.ripples = st.ripples.filter((r) => t - r.t0 < 2.2);
+
+  const ptr = pointerPx(env, w, h);
+  const ribbons = Math.round(clamp(6 * p.density, 4, 9));
+  const segs = 42;
+  const accents = [a1, a2, a3];
+
+  // deep sheen behind the fabric
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * (0.5 + Math.sin(t * 0.1 * sp) * 0.2), h * 0.3, m * 0.6, a1, 0.06 + p.glow * 0.04);
+  softOrb(ctx, w * (0.5 + Math.cos(t * 0.13 * sp) * 0.25), h * 0.75, m * 0.5, a2, 0.05 + p.glow * 0.03);
+  ctx.restore();
+
+  for (let ri = 0; ri < ribbons; ri++) {
+    const fr = ri / Math.max(1, ribbons - 1);
+    const baseY = h * (0.12 + 0.76 * fr);
+    const amp = h * (0.05 + 0.06 * Math.sin(fr * Math.PI));
+    const colA = accents[ri % 3];
+    const colB = accents[(ri + 1) % 3];
+    const ribbonH = h * (0.075 + 0.045 * Math.sin(fr * 2.4 + 1.3));
+    const speedK = 0.25 + fr * 0.35;
+
+    const pts: { x: number; y: number }[] = [];
+    for (let i = 0; i <= segs; i++) {
+      const x = (i / segs) * w;
+      let y =
+        baseY +
+        Math.sin(x * 0.006 + t * speedK * sp + ri * 1.7) * amp +
+        Math.sin(x * 0.017 - t * speedK * 0.7 * sp + ri * 0.9) * amp * 0.45;
+
+      // the silk drapes towards the moving cursor
+      if (ptr) {
+        const g = Math.exp(-((x - ptr.x) * (x - ptr.x)) / (2 * (w * 0.1) * (w * 0.1)));
+        y += g * (ptr.y - baseY) * 0.35 * clamp(ptr.speed, 0.15, 1.2);
+      }
+
+      // tap ripples — a comb wave travels through the cloth
+      for (const rp of st.ripples) {
+        const age = t - rp.t0;
+        const ringR = age * w * 0.35;
+        const d = Math.abs(Math.hypot(x - rp.x, baseY - rp.y) - ringR);
+        const sigma = w * 0.05;
+        const wgt = Math.exp(-(d * d) / (2 * sigma * sigma)) * Math.max(0, 1 - age / 2.2);
+        y += Math.sin(d * 0.08) * wgt * h * 0.045;
+      }
+      pts.push({ x, y });
+    }
+
+    // filled band along the spine
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y - ribbonH / 2);
+    for (let i = 1; i <= segs; i++) ctx.lineTo(pts[i].x, pts[i].y - ribbonH / 2);
+    for (let i = segs; i >= 0; i--) ctx.lineTo(pts[i].x, pts[i].y + ribbonH / 2);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, baseY - amp - ribbonH, w, baseY + amp + ribbonH);
+    grad.addColorStop(0, rgba(colA, 0));
+    grad.addColorStop(0.25, rgba(colA, 0.5 + p.glow * 0.12));
+    grad.addColorStop(0.55, rgba(colB, 0.42 + p.glow * 0.12));
+    grad.addColorStop(1, rgba(colB, 0.05));
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // sheen line along the top edge
+    ctx.strokeStyle = rgba("#ffffff", 0.16 + p.glow * 0.1);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y - ribbonH / 2);
+    for (let i = 1; i <= segs; i++) ctx.lineTo(pts[i].x, pts[i].y - ribbonH / 2);
+    ctx.stroke();
+  }
+
+  // loose folds vignette
+  const vg = ctx.createLinearGradient(0, 0, 0, h);
+  vg.addColorStop(0, rgba("#000000", 0.3));
+  vg.addColorStop(0.5, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.4));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 30 · Ember Forge — tap strikes the anvil, sparks fly                */
+/* ------------------------------------------------------------------ */
+
+type Ember = {
+  x0: number;
+  y0: number;
+  ph: number;
+  sp: number;
+  wob: number;
+  r: number;
+  c: number;
+  ox: number;
+  oy: number;
+};
+type EmberState = { embers: Ember[]; strikes: { x: number; y: number; t0: number }[] };
+
+const emberForge: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  fillBg(ctx, w, h, shade(bg0, -0.1), bg1);
+
+  const st = canvasState<EmberState>(ctx, `ember${p.seed}|${p.density}`, () => {
+    const r = mulberry32(p.seed);
+    const n = Math.round(clamp(46 * p.density * areaScale(w, h), 26, 100));
+    const embers: Ember[] = [];
+    for (let i = 0; i < n; i++) {
+      embers.push({
+        x0: 0.06 + r() * 0.88,
+        y0: r(),
+        ph: r() * TAU,
+        sp: 0.5 + r() * 1.2,
+        wob: 0.4 + r() * 1.2,
+        r: 1 + r() * 2.6,
+        c: 2 + Math.floor(r() * 3),
+        ox: 0,
+        oy: 0,
+      });
+    }
+    return { embers, strikes: [] };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      const tx = tap.x * w;
+      const ty = tap.y * h;
+      st.strikes.push({ x: tx, y: ty, t0: t });
+      for (const em of st.embers) {
+        const travel = h + m * 0.1;
+        const ex = em.x0 * w + em.ox;
+        const ey = travel - ((em.y0 * travel + t * em.sp * m * 0.07 * sp) % travel) - m * 0.05 + em.oy;
+        const d = Math.hypot(ex - tx, ey - ty);
+        const R = m * 0.42;
+        if (d < R && d > 0.001) {
+          const f = (1 - d / R) * m * 0.42;
+          em.ox += ((ex - tx) / d) * f;
+          em.oy += ((ey - ty) / d) * f;
+        }
+      }
+    }
+  }
+
+  // forge floor glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.5, h * 1.02, m * 0.75, a2, 0.22 + p.glow * 0.12);
+  softOrb(ctx, w * 0.24, h * 0.99, m * 0.34, a1, 0.14 + p.glow * 0.08);
+  ctx.restore();
+
+  // coal bed
+  const bedY = h * 0.92;
+  const bedGrad = ctx.createLinearGradient(0, bedY - m * 0.06, 0, h);
+  bedGrad.addColorStop(0, rgba("#000000", 0));
+  bedGrad.addColorStop(1, rgba(shade(a1, -0.4), 0.55));
+  ctx.fillStyle = bedGrad;
+  ctx.fillRect(0, bedY - m * 0.06, w, h);
+
+  const rndC = mulberry32(p.seed + 5);
+  const coalN = Math.round(clamp(14 * p.density, 8, 26));
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < coalN; i++) {
+    const cx = rndC() * w;
+    const cy = h - rndC() * m * 0.07;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 1.4 * sp + i * 2.3);
+    softOrb(ctx, cx, cy, m * 0.02 + pulse * m * 0.012, i % 2 ? a1 : a2, 0.25 + p.glow * 0.2 * pulse);
+  }
+  ctx.restore();
+
+  // strikes — flash + shock ring
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  st.strikes = st.strikes.filter((s) => t - s.t0 < 0.75);
+  for (const s of st.strikes) {
+    const age = (t - s.t0) / 0.75;
+    softOrb(ctx, s.x, s.y, m * (0.1 + age * 0.28), a3, (1 - age) * 0.7 * (0.5 + p.glow * 0.5));
+    ctx.strokeStyle = rgba("#ffffff", (1 - age) * 0.45);
+    ctx.lineWidth = Math.max(1, m * 0.006 * (1 - age));
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, age * m * 0.38, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // embers — rise, flicker, lean towards warm pointers
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const dec = Math.exp(-dt * 2.0);
+  for (const em of st.embers) {
+    em.ox *= dec;
+    em.oy *= dec;
+
+    const travel = h + m * 0.1;
+    const baseY = travel - ((em.y0 * travel + t * em.sp * m * 0.07 * sp) % travel) - m * 0.05;
+    const bx = em.x0 * w + Math.sin(t * em.wob * sp + em.ph) * m * 0.025;
+
+    if (ptr) {
+      const dx = ptr.x - (bx + em.ox);
+      const dy = ptr.y - (baseY + em.oy);
+      const d = Math.hypot(dx, dy);
+      const R = m * 0.4;
+      if (d < R && d > 0.001) {
+        const f = (1 - d / R) * (ptr.down ? 1.4 : 0.6);
+        em.ox += (dx / d) * f * m * 0.05 * dt;
+        em.oy += (dy / d) * f * m * 0.05 * dt;
+      }
+    }
+
+    const flick = 0.6 + 0.4 * Math.sin(t * (3 + em.sp * 2) + em.ph * 5);
+    const x = bx + em.ox;
+    const y = baseY + em.oy;
+    const color = p.colors[em.c];
+
+    // short trail for larger sparks
+    if (em.r > 2.4) {
+      ctx.strokeStyle = rgba(color, 0.28 * flick);
+      ctx.lineWidth = Math.max(0.8, em.r * 0.5);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - Math.sin(t * em.wob * sp + em.ph) * m * 0.012, y + m * 0.03);
+      ctx.stroke();
+    }
+
+    glowDot(ctx, x, y, em.r * (0.55 + p.glow * 0.5) * (0.7 + flick * 0.5), color, 8 * p.glow * flick, 0.55 + flick * 0.4);
+  }
+  ctx.restore();
+
+  // chimney dark vignette
+  const vg = ctx.createRadialGradient(w / 2, h * 0.9, m * 0.25, w / 2, h * 0.75, Math.max(w, h) * 0.8);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.55));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
 /* registry                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -2117,4 +2724,8 @@ export const INTERACTIVE_ENGINES = {
   lanternDrift,
   warpSpeed,
   kaleidoscope,
+  bioTide,
+  glassMarbles,
+  silkFlow,
+  emberForge,
 } as const;

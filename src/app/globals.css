@@ -267,3 +267,55 @@
 .gallery-card-shine:hover::after {
   transform: translateX(120%);
 }
+
+/* infinite scene-name marquee under the hero */
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.scene-marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+.scene-marquee-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee-scroll 55s linear infinite;
+  will-change: transform;
+}
+.scene-marquee:hover .scene-marquee-track {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-marquee-track {
+    animation: none;
+  }
+}
+
+/* sheen sweep on primary CTA hover */
+.cta-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.cta-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -80%;
+  width: 45%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.65s ease;
+  pointer-events: none;
+}
+.cta-sheen:hover::after {
+  left: 135%;
+}
+
+/* marquee + sheen v2 */

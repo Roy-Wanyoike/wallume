@@ -65,6 +65,8 @@ export type InteractionKind =
   | "shimmer"
   | "warp"
   | "bloom"
+  | "glow"
+  | "magnet"
   | "parallax";
 
 export type WallpaperCategory =

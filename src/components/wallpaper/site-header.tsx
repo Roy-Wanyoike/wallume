@@ -1,11 +1,14 @@
 "use client";
 
-import { Moon, Sun } from "lucide-react";
+import { Leaf, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
+import { useEcoMode } from "@/lib/eco-store";
+import { cn } from "@/lib/utils";
 
 export function SiteHeader() {
   const { resolvedTheme, setTheme } = useTheme();
+  const { eco, toggleEco } = useEcoMode();
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/5 bg-background/70 backdrop-blur-xl">
@@ -42,6 +45,20 @@ export function SiteHeader() {
           <Button
             variant="outline"
             size="icon"
+            aria-pressed={eco}
+            aria-label={eco ? "Turn off eco mode" : "Turn on eco mode for smoother battery life"}
+            title={eco ? "Eco mode on — lower fps & resolution for battery" : "Eco mode off — full quality"}
+            className={cn(
+              "border-white/10 transition-colors",
+              eco && "border-emerald-400/50 bg-emerald-400/10 text-emerald-300",
+            )}
+            onClick={toggleEco}
+          >
+            <Leaf className={cn("h-4 w-4", eco && "drop-shadow-[0_0_6px_rgba(52,211,153,0.8)]")} />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
             aria-label="Toggle dark mode"
             className="border-white/10"
             onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
@@ -50,7 +67,7 @@ export function SiteHeader() {
             <Moon className="h-4 w-4 dark:hidden" />
           </Button>
           <a href="#studio" className="hidden sm:block">
-            <Button className="h-9 gap-2 bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white shadow-md shadow-rose-500/20 hover:opacity-90">
+            <Button className="cta-sheen h-9 gap-2 bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white shadow-md shadow-rose-500/20 hover:opacity-90">
               Start creating
             </Button>
           </a>

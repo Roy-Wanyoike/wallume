@@ -70,7 +70,7 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
         </FadeIn>
         <FadeIn delay={0.16}>
           <p className="mx-auto mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-            250+ interactive scenes — fish that scatter, fireworks you can launch, lightning
+            290+ interactive scenes — fish that scatter, fireworks you can launch, lightning
             you can call. Tune palette, motion and glow in real time, then export a crisp
             high-resolution wallpaper — or a looping live video — sized exactly for your
             phone, tablet or desktop.
@@ -81,7 +81,7 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
             <Link href="#studio">
               <Button
                 size="lg"
-                className="h-12 gap-2 bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-400 px-7 text-base font-semibold text-white shadow-xl shadow-rose-500/25 transition-transform hover:scale-[1.03] hover:opacity-90"
+                className="cta-sheen h-12 gap-2 bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-400 px-7 text-base font-semibold text-white shadow-xl shadow-rose-500/25 transition-transform hover:scale-[1.03] hover:opacity-90"
               >
                 <Wand2 className="h-5 w-5" /> Start creating
               </Button>
@@ -109,6 +109,23 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
         )}
       </div>
     </section>
+  );
+}
+
+function SceneMarquee() {
+  const names = WALLPAPERS.slice(0, 30).map((w) => `${w.icon} ${w.name}`);
+  const row = [...names, ...names];
+  return (
+    <div aria-hidden className="scene-marquee border-y border-white/5 bg-white/[0.015] py-3">
+      <div className="scene-marquee-track">
+        {row.map((n, i) => (
+          <span key={i} className="mx-5 inline-flex items-center gap-2 text-xs font-medium tracking-wide text-muted-foreground/80">
+            {n}
+            <span className="text-fuchsia-400/40">·</span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -283,6 +300,7 @@ export default async function Home() {
       <SiteHeader />
       <main className="flex-1 pb-20">
         <Hero totalDownloads={totalDownloads} />
+        <SceneMarquee />
         <WallumeApp initialStats={stats} />
         <HowTo />
       </main>
