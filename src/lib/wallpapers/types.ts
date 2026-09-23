@@ -69,7 +69,11 @@ export type InteractionKind =
   | "magnet"
   | "parallax"
   | "rake"
-  | "grow";
+  | "grow"
+  | "pin"
+  | "blend"
+  | "beam"
+  | "dig";
 
 export type WallpaperCategory =
   | "Nature"

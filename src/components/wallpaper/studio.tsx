@@ -6,6 +6,7 @@ import {
   Clapperboard,
   Dices,
   Download,
+  Flower2,
   Lock,
   Maximize2,
   Monitor,
@@ -39,6 +40,7 @@ type Props = {
   onToggleLike: () => void;
   onOpenDownload: () => void;
   onOpenFullscreen: () => void;
+  onOpenZen: () => void;
   onOpenAmbient: () => void;
   onOpenShare: () => void;
   onShuffle: () => void;
@@ -219,6 +221,7 @@ export function Studio({
   onToggleLike,
   onOpenDownload,
   onOpenFullscreen,
+  onOpenZen,
   onOpenAmbient,
   onOpenShare,
   onShuffle,
@@ -302,6 +305,15 @@ export function Studio({
                 <MoonStar className="h-4 w-4" /> Ambient
               </Button>
             </div>
+
+            {/* zen — the purest way to watch: no chrome, screen stays awake */}
+            <Button
+              variant="outline"
+              className="h-11 w-full gap-2 transition-all hover:border-emerald-400/50 hover:bg-emerald-400/10 hover:text-emerald-200"
+              onClick={onOpenZen}
+            >
+              <Flower2 className="h-4 w-4" /> Zen mode — just the scene
+            </Button>
 
             {/* auto-tour — a new scene every 15s; stops on immersive overlays */}
             <Button

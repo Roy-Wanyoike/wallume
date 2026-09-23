@@ -30,6 +30,7 @@ import { SceneOfTheDay } from "./scene-of-the-day";
 import { ScrollProgress } from "./scroll-progress";
 import { DownloadDialog } from "./download-dialog";
 import { AmbientMode } from "./ambient-mode";
+import { ZenMode } from "./zen-mode";
 import { WallpaperCanvas } from "./wallpaper-canvas";
 import { useFavorites } from "@/hooks/use-favorites";
 
@@ -44,6 +45,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
   const [device, setDevice] = useState<DeviceMode>("phone");
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const [zen, setZen] = useState(false);
   const [ambient, setAmbient] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareSaving, setShareSaving] = useState(false);
@@ -247,7 +249,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
   useEffect(() => {
     if (!autoTour) return;
     // pause the tour while an immersive overlay covers the studio
-    if (fullscreen || ambient) return;
+    if (fullscreen || ambient || zen) return;
     const id = setInterval(() => {
       const cur = autoTourRef.current;
       const idx = WALLPAPERS.findIndex((w) => w.id === cur.id);
@@ -256,7 +258,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
       setConfig((c) => ({ ...c, paletteIndex: 0, customColors: null }));
     }, 15_000);
     return () => clearInterval(id);
-  }, [autoTour, fullscreen, ambient]);
+  }, [autoTour, fullscreen, ambient, zen]);
 
   const toggleAutoTour = useCallback(() => {
     setAutoTour((v) => {
@@ -354,6 +356,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
       )
         return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (zen) return; // zen mode owns the keyboard — Esc handled inside the overlay
 
       const idx = WALLPAPERS.findIndex((w) => w.id === def.id);
       switch (e.key) {
@@ -374,6 +377,10 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         case "f":
         case "F":
           setFullscreen((v) => !v);
+          break;
+        case "z":
+        case "Z":
+          setZen(true);
           break;
         case "a":
         case "A":
@@ -419,7 +426,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [def, pickForNow, toast]);
+  }, [def, pickForNow, toast, zen]);
 
   return (
     <>
@@ -447,6 +454,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         onToggleLike={() => toggleLike(def.id)}
         onOpenDownload={() => setDownloadOpen(true)}
         onOpenFullscreen={() => setFullscreen(true)}
+        onOpenZen={() => setZen(true)}
         onOpenAmbient={() => setAmbient(true)}
         onOpenShare={openShare}
         onShuffle={shuffleAll}
@@ -565,6 +573,9 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
       </Dialog>
 
       <AmbientMode open={ambient} onOpenChange={setAmbient} favoriteIds={favorites} />
+
+      {/* zen mode — chrome-free fullscreen with wake lock */}
+      {zen && <ZenMode def={def} config={config} onExit={() => setZen(false)} />}
 
       {/* fullscreen immersive preview */}
       {fullscreen && (

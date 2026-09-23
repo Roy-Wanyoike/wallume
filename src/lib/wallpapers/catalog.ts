@@ -1,5 +1,5 @@
 /**
- * Wallume catalog — expands 44 engine families into 450+ uniquely named,
+ * Wallume catalog — expands 48 engine families into 500 uniquely named,
  * hand-tuned wallpapers. Each variant picks its own palette rotation,
  * motion defaults and deterministic seed so every card in the gallery
  * has a distinct personality.
@@ -26,7 +26,7 @@ type FamilySource = {
 
 const BASE_FAMILY: Record<string, { names: string[]; taglines: string[] }> = {
   "aurora-veil": {
-    names: ["Aurora Veil", "Polar Whisper", "Emerald Curtain", "Sky Ribbons", "Solar Wind", "Northern Lace", "Ion Glow", "Magnetic Haze"],
+    names: ["Aurora Veil", "Polar Whisper", "Emerald Curtain", "Sky Ribbons", "Solar Wind", "Northern Lace", "Ion Glow", "Magnetic Haze", "Solar Chorus"],
     taglines: [
       "Slow aurora sheets breathing over the pole",
       "A whisper of green light on a quiet night",
@@ -35,7 +35,7 @@ const BASE_FAMILY: Record<string, { names: string[]; taglines: string[] }> = {
     ],
   },
   starfall: {
-    names: ["Starfall", "Meteor Rain", "Comet Wishes", "Stellar Drift", "Night Shower", "Falling Light", "Celestial Dust", "Wishing Sky"],
+    names: ["Starfall", "Meteor Rain", "Comet Wishes", "Stellar Drift", "Night Shower", "Falling Light", "Celestial Dust", "Wishing Sky", "Perseid Night"],
     taglines: [
       "Constellations twinkling and the occasional wish",
       "A quiet meteor shower for late-night dreamers",
@@ -44,7 +44,7 @@ const BASE_FAMILY: Record<string, { names: string[]; taglines: string[] }> = {
     ],
   },
   "tidal-waves": {
-    names: ["Tidal Waves", "Moon Tide", "Deep Swell", "Ocean Pulse", "Coral Current", "Siren Shores", "Sea Breath", "Azure Rhythm"],
+    names: ["Tidal Waves", "Moon Tide", "Deep Swell", "Ocean Pulse", "Coral Current", "Siren Shores", "Sea Breath", "Azure Rhythm", "Neap Tide"],
     taglines: [
       "Endless ocean layers rolling to the horizon",
       "The moon pulls, the sea answers, forever",
@@ -80,7 +80,7 @@ const BASE_FAMILY: Record<string, { names: string[]; taglines: string[] }> = {
     ],
   },
   "neon-horizon": {
-    names: ["Neon Horizon", "Midnight Arcade", "Chrome Sunset", "Retro Highway", "Laser Boulevard", "Synth Skyline", "Grid Runner", "Vapor Coast"],
+    names: ["Neon Horizon", "Midnight Arcade", "Chrome Sunset", "Retro Highway", "Laser Boulevard", "Synth Skyline", "Grid Runner", "Vapor Coast", "Outrun Dusk"],
     taglines: [
       "Retro-future grid running into a striped sun",
       "An arcade glowing at the edge of midnight",
@@ -1048,6 +1048,114 @@ const NEW_FAMILIES: FamilySource[] = [
     interact: { kind: "shimmer", label: "Move — panes light up · Tap — light shafts" },
     tags: ["stained glass", "cathedral", "geometric", "light", "gothic", "window"],
   },
+  {
+    draw: INTERACTIVE_ENGINES.pinArt,
+    icon: "📌",
+    category: "Geometric",
+    heroTime: 1.6,
+    palettes: [
+      pal("Brass Board", ["#16130e", "#241d12", "#e8b04b", "#d97e4a", "#ffe9b3"]),
+      pal("Chrome Toy", ["#0e1116", "#1a2028", "#9fb4c7", "#e0eafc", "#7dd3fc"]),
+      pal("Rose Gold", ["#170f12", "#241719", "#f2a6b8", "#e8d5c0", "#ffd166"]),
+      pal("Emerald Pins", ["#0b1410", "#12211a", "#4ade80", "#fbbf24", "#a7f3d0"]),
+    ],
+    names: ["Pin Art", "Metal Impression", "Pin Sculpture", "Fingertip Mold", "Brass Relief", "Pin Screen", "Tactile Field", "Pin Maze", "Shadow Board", "Pin Bloom"],
+    taglines: [
+      "Sweep the board — the pins mold to you",
+      "Every fingerstroke becomes a sculpture",
+      "The classic toy, reborn in light",
+      "Press hard and leave your mark",
+      "A relief portrait of your last touch",
+      "Thousands of pins, one impression",
+      "Tap — the board takes a breath",
+      "Draw with a thousand tiny mirrors",
+      "Your gesture, cast in metal",
+      "The board remembers where you have been",
+    ],
+    interact: { kind: "pin", label: "Touch — mold the pins · Tap — flatten wave" },
+    tags: ["pin art", "pins", "texture", "metal", "toy", "impression"],
+  },
+  {
+    draw: INTERACTIVE_ENGINES.chameleonGarden,
+    icon: "🦎",
+    category: "Nature",
+    heroTime: 2.6,
+    palettes: [
+      pal("Jungle Jade", ["#0a1a12", "#123324", "#5eead4", "#a3e635", "#fde047"]),
+      pal("Panther Pink", ["#170a14", "#2a1122", "#f472b6", "#c084fc", "#fde68a"]),
+      pal("Rainforest Blue", ["#08131f", "#0f2438", "#38bdf8", "#4ade80", "#fbbf24"]),
+      pal("Sunset Cham", ["#1c0f0a", "#2e1810", "#fb923c", "#f87171", "#fef08a"]),
+    ],
+    names: ["Chameleon Garden", "Color Thief", "Panther Pose", "Blend Mode", "Turret Eyes", "Jungle Drifter", "Slow Mirror", "Hidden King", "Leafwalker", "Tongue Trick"],
+    taglines: [
+      "Hold still — it wears your colors",
+      "A lizard that dresses like the light",
+      "Its eyes follow you. Its skin follows everything",
+      "The jungle's slowest fashion icon",
+      "Tap — lunch is snatched mid-air",
+      "Master of the wardrobe of leaves",
+      "It never hides. It just matches",
+      "A living mood ring on a branch",
+      "Patience, painted one shade at a time",
+      "The garden rearranges itself around it",
+    ],
+    interact: { kind: "blend", label: "Hold — it blends · Tap — tongue snap" },
+    tags: ["chameleon", "lizard", "jungle", "color", "animal"],
+  },
+  {
+    draw: INTERACTIVE_ENGINES.lighthouseBay,
+    icon: "💡",
+    category: "Ocean",
+    heroTime: 2.9,
+    palettes: [
+      pal("North Sea", ["#050b16", "#0a1626", "#7dd3fc", "#fbbf24", "#e0f2fe"]),
+      pal("Storm Harbor", ["#0b1014", "#141e26", "#94a3b8", "#f97316", "#fde68a"]),
+      pal("Rose Aurora Bay", ["#120a18", "#1d1226", "#f0abfc", "#67e8f9", "#fef3c7"]),
+      pal("Emerald Coast", ["#04120e", "#0a2018", "#34d399", "#fcd34d", "#cffafe"]),
+    ],
+    names: ["Lighthouse Bay", "Keeper's Watch", "Beam Over Water", "Foghorn Night", "Harbor Light", "Safe Passage", "Sailor's Star", "The Long Shine", "Rain on the Bay", "Last Boat Home"],
+    taglines: [
+      "Aim your finger — the beam sweeps with you",
+      "Somewhere below, small boats are glad it's there",
+      "Rain, waves, and one very reliable light",
+      "Tap — the foghorn answers across the bay",
+      "The oldest night-shift in the world",
+      "Every sweep of the beam counts the boats",
+      "A promise made of rotating light",
+      "Storms ask it questions. It only answers one way",
+      "The harbor never sleeps, it just blinks slowly",
+      "Point the way home for imaginary sailors",
+    ],
+    interact: { kind: "beam", label: "Aim — the beam follows · Tap — foghorn" },
+    tags: ["lighthouse", "sea", "beam", "boats", "rain", "night"],
+  },
+  {
+    draw: INTERACTIVE_ENGINES.antFarm,
+    icon: "🐜",
+    category: "Nature",
+    heroTime: 2.2,
+    palettes: [
+      pal("Terracotta Farm", ["#1c120b", "#2c1c10", "#d97706", "#a16207", "#fcd34d"]),
+      pal("Forest Loam", ["#0e150c", "#1a2614", "#84cc16", "#f59e0b", "#d9f99d"]),
+      pal("Blue Clay", ["#0c1218", "#16222e", "#60a5fa", "#f97316", "#bae6fd"]),
+      pal("Rose Quartz Sand", ["#1a1013", "#2a1a1e", "#fb7185", "#fbbf24", "#fecdd3"]),
+    ],
+    names: ["Ant Farm", "The Dig", "Colony Lines", "Tunnel Town", "Worker Song", "Six Feet Under", "Sugar Rush", "Soil Highways", "The Long Haul", "Queen's Labyrinth"],
+    taglines: [
+      "Drag through the soil — dig glowing tunnels",
+      "A whole civilization in a glass box",
+      "The workers always find the sugar",
+      "Tap — drop a crumb and watch them swarm",
+      "Infrastructure, but make it tiny",
+      "Every tunnel is a team effort",
+      "Six tiny legs, endless ambition",
+      "The ant happens. Then the farm happens",
+      "Rush hour, underground edition",
+      "They dig, you design",
+    ],
+    interact: { kind: "dig", label: "Drag — dig tunnels · Tap — sugar drop" },
+    tags: ["ants", "colony", "soil", "tunnels", "farm"],
+  },
 ];
 
 /* --------------------------- interaction meta ------------------------ */
@@ -1069,6 +1177,14 @@ const BASE_INTERACT: Record<string, { kind: InteractionKind; label: string }> = 
 
 const VARIANTS_PER_BASE = 8;
 const VARIANTS_PER_NEW = 10;
+
+/** four classic families carry a 9th variant so the catalog reaches the 500 milestone */
+const EXTRA_BASE_VARIANTS: Record<string, number> = {
+  "aurora-veil": 1,
+  starfall: 1,
+  "tidal-waves": 1,
+  "neon-horizon": 1,
+};
 
 function slug(name: string): string {
   return name
@@ -1107,7 +1223,8 @@ function buildCatalog(): WallpaperDef[] {
     const draw =
       decorate === "ripple" ? withRipple(base.draw) : decorate === "burst" ? withBurst(base.draw) : base.draw;
 
-    for (let i = 0; i < VARIANTS_PER_BASE; i++) {
+    const extra = EXTRA_BASE_VARIANTS[base.id] ?? 0;
+    for (let i = 0; i < VARIANTS_PER_BASE + extra; i++) {
       const r = i % base.palettes.length;
       const rotated = i === 0 ? base.palettes : [...base.palettes.slice(r), ...base.palettes.slice(0, r)];
       const isHero = i === 0;

@@ -113,10 +113,10 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
         </FadeIn>
         <FadeIn delay={0.16}>
           <p className="mx-auto mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-            450+ interactive scenes — fish that scatter, bonsai that grows for you, a whale that
-            follows your finger. Tune palette, motion and glow in real time, then export a
-            crisp high-resolution wallpaper — or a looping live video — sized exactly for
-            your phone, tablet or desktop.
+            500 interactive scenes — fish that scatter, ant tunnels you dig with a swipe, a
+            lighthouse beam that follows your aim, a chameleon that wears your colors. Tune
+            palette, motion and glow in real time, then export a crisp high-resolution
+            wallpaper — or a looping live video — sized exactly for your phone, tablet or desktop.
           </p>
         </FadeIn>
         <FadeIn delay={0.24}>
@@ -177,7 +177,8 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
 }
 
 function SceneMarquee() {
-  const names = WALLPAPERS.slice(0, 30).map((w) => `${w.icon} ${w.name}`);
+  // even cross-section of the whole catalog so new families rotate in too
+  const names = WALLPAPERS.filter((_, i) => i % 16 === 0).map((w) => `${w.icon} ${w.name}`);
   const row = [...names, ...names];
   return (
     <div aria-hidden className="scene-marquee border-y border-white/5 bg-white/[0.015] py-3">
@@ -284,6 +285,7 @@ function HowTo() {
                   ["R", "randomize"],
                   ["N", "for right now"],
                   ["F", "fullscreen"],
+                  ["Z", "zen mode"],
                   ["A", "ambient"],
                   ["T", "auto-tour"],
                   ["D", "download"],
@@ -327,7 +329,7 @@ function SiteFooter() {
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-4 text-sm text-muted-foreground sm:flex-row">
         <p className="flex items-center gap-2">
           <span className="font-semibold text-foreground">Wallume</span>
-          <span className="version-chip">v2.7</span>
+          <span className="version-chip">v2.8</span>
           <span className="hidden sm:inline">— interactive wallpapers, painted by code.</span>
         </p>
         <nav aria-label="Footer" className="flex items-center gap-4">

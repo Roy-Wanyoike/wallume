@@ -43,13 +43,26 @@ export function renderFrame(
 ) {
   ctx.save();
   ctx.clearRect(0, 0, w, h);
-  def.draw(ctx, w, h, t, {
-    colors: resolveColors(def, config),
-    speed: config.speed,
-    density: config.density,
-    glow: config.glow,
-    seed: config.seed,
-  }, env);
+  try {
+    def.draw(ctx, w, h, t, {
+      colors: resolveColors(def, config),
+      speed: config.speed,
+      density: config.density,
+      glow: config.glow,
+      seed: config.seed,
+    }, env);
+  } catch (err) {
+    // one bad frame must never take the whole app down — paint a safe
+    // fallback gradient and let the rest of the page keep running
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[wallume] scene "${def.id}" threw while drawing:`, err);
+    }
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, "#111015");
+    g.addColorStop(1, "#1c1424");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  }
   ctx.restore();
 }
 

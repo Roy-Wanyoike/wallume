@@ -21,6 +21,7 @@ import {
   canvasState,
   areaScale,
   pointerPx,
+  hexToRgb,
 } from "./helpers";
 
 /* ------------------------------------------------------------------ */
@@ -5929,6 +5930,936 @@ const stainedGlass: DrawFn = (ctx, w, h, t, p, env) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* 37 · Pin Art — mold the metal pins with your finger                 */
+/* ------------------------------------------------------------------ */
+
+type PinArtState = {
+  ext: Float32Array;
+  imp: Float32Array;
+  cols: number;
+  rows: number;
+  sx: number;
+  sy: number;
+  waves: { x: number; y: number; t0: number }[];
+};
+
+const pinArt: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const ptr = pointerPx(env, w, h);
+
+  const st = canvasState<PinArtState>(ctx, "pinart", () => {
+    const cols = 22;
+    const sx = w / (cols + 1);
+    const sy = sx * 0.92;
+    const rows = Math.ceil((h - sx) / sy) + 1;
+    return { ext: new Float32Array(cols * rows), imp: new Float32Array(cols * rows), cols, rows, sx, sy, waves: [] };
+  });
+  const { cols, rows, sx, sy } = st;
+  const decay = Math.pow(0.965, (env?.dt ?? 1 / 60) * 60);
+
+  // brushed metal board
+  fillBg(ctx, w, h, shade(bg0, -0.12), bg1);
+  ctx.save();
+  for (let i = 0; i < 26; i++) {
+    const yy = ((i * 97) % rows) * sy + sx * 0.5;
+    ctx.fillStyle = rgba(i % 2 ? "#ffffff" : "#000000", 0.022);
+    ctx.fillRect(0, yy, w, Math.max(1, sy * 0.16));
+  }
+  ctx.restore();
+
+  // consume taps → flatten shockwaves
+  if (env) {
+    for (const tap of env.pointer.taps) st.waves.push({ x: tap.x * w, y: tap.y * h, t0: t });
+    if (st.waves.length > 4) st.waves.splice(0, st.waves.length - 4);
+  }
+
+  const sigma = m * 0.1;
+  // physics
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      const x = (c + 1) * sx;
+      const y = sx * 0.5 + r * sy;
+      let target = 0;
+      if (ptr) {
+        const dx = x - ptr.x;
+        const dy = y - ptr.y;
+        const g = Math.exp(-(dx * dx + dy * dy) / (2 * sigma * sigma));
+        target = Math.min(1.15, g * (ptr.down ? 1.45 : 1.05));
+      }
+      st.imp[i] = Math.max(st.imp[i] * decay, target);
+      // waves press pins in, then they rebound
+      for (const wv of st.waves) {
+        const age = (t - wv.t0) * sp;
+        if (age < 0) continue;
+        const wr = age * m * 0.85;
+        const d = Math.hypot(x - wv.x, y - wv.y);
+        const band = Math.abs(d - wr);
+        if (band < sigma * 0.9) target = Math.min(target, -0.32 * (1 - band / (sigma * 0.9)));
+      }
+      const cur = st.ext[i];
+      st.ext[i] = cur + (Math.max(target, st.imp[i]) - cur) * (env ? 0.22 : 1);
+    }
+  }
+
+  // base plate dots (batched — one path, one fill)
+  ctx.save();
+  ctx.fillStyle = rgba(shade(bg0, 0.35), 0.5);
+  ctx.beginPath();
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const e = st.ext[r * cols + c];
+      if (e > 0.22) continue;
+      ctx.moveTo((c + 1) * sx + sx * 0.1, sx * 0.5 + r * sy);
+      ctx.arc((c + 1) * sx, sx * 0.5 + r * sy, Math.max(0.8, sx * 0.11), 0, TAU);
+    }
+  }
+  ctx.fill();
+  ctx.restore();
+
+  // extended pins get the fancy metallic treatment
+  ctx.save();
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      const e = st.ext[i];
+      if (e <= 0.1 && e >= -0.05) continue;
+      const x = (c + 1) * sx;
+      const y = sx * 0.5 + r * sy;
+      if (e < -0.05) {
+        // pressed-in pins darken
+        ctx.fillStyle = rgba(shade(bg0, -0.55), 0.8);
+        ctx.beginPath();
+        ctx.arc(x, y, sx * 0.13, 0, TAU);
+        ctx.fill();
+        continue;
+      }
+      const mixT = (c / cols + e * 0.3) % 1;
+      const tip = e > 0.62 ? a3 : mixT < 0.5 ? a1 : a2;
+      const rad = sx * (0.13 + e * 0.24);
+      // shaft
+      ctx.strokeStyle = rgba(shade(tip, -0.45), 0.55);
+      ctx.lineWidth = Math.max(1, sx * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      glowDot(ctx, x, y, rad, tip, m * 0.012 * e * p.glow, 0.55 + e * 0.4);
+      // specular kick toward top-left
+      ctx.fillStyle = rgba("#ffffff", 0.28 * e);
+      ctx.beginPath();
+      ctx.arc(x - rad * 0.3, y - rad * 0.32, rad * 0.3, 0, TAU);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // tap waves shimmer
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const wv of st.waves) {
+    const age = (t - wv.t0) * sp;
+    if (age < 0 || age > 1.6) continue;
+    const fade = 1 - age / 1.6;
+    ctx.strokeStyle = rgba(a3, fade * 0.35);
+    ctx.lineWidth = Math.max(1, m * 0.004 * fade);
+    ctx.beginPath();
+    ctx.arc(wv.x, wv.y, age * m * 0.85, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // cursor sheen
+  if (ptr) softOrb(ctx, ptr.x, ptr.y, m * 0.16, "#ffffff", ptr.down ? 0.1 : 0.05);
+};
+
+/* ------------------------------------------------------------------ */
+/* 38 · Chameleon Garden — hold, and it blends into your colors        */
+/* ------------------------------------------------------------------ */
+
+type ChamState = {
+  x: number;
+  dir: number;
+  col: { r: number; g: number; b: number };
+  tongue: { t0: number; tx: number; ty: number; bug: number } | null;
+  bugs: { ph: number; r: number; sp: number; y: number; alive: boolean; respawn: number }[];
+};
+
+const chameleonGarden: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+  const ptr = pointerPx(env, w, h);
+
+  const st = canvasState<ChamState>(ctx, "cham", () => {
+    const bugs = [];
+    for (let i = 0; i < 6; i++)
+      bugs.push({ ph: rnd() * TAU, r: 0.1 + rnd() * 0.34, sp: 0.25 + rnd() * 0.5, y: 0.16 + rnd() * 0.6, alive: true, respawn: 0 });
+    const [r0, g0, b0] = hexToRgb(a1);
+    return { x: 0.5, dir: 1, col: { r: r0, g: g0, b: b0 }, tongue: null, bugs };
+  });
+
+  const branchY = (nx: number) => h * 0.52 + Math.sin(nx * 5.2) * h * 0.055;
+  const bx = st.x * w;
+  const by = branchY(st.x);
+
+  // jungle bokeh background
+  fillBg(ctx, w, h, shade(bg0, -0.1), bg1);
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 5; i++) {
+    const ox = w * (0.14 + 0.19 * i) + Math.sin(t * 0.11 * sp + i * 2.1) * w * 0.03;
+    const oy = h * (0.12 + 0.17 * ((i * 7) % 5) / 5);
+    softOrb(ctx, ox, oy, m * (0.16 + 0.08 * (i % 3)), i % 2 ? a2 : a3, 0.035 + p.glow * 0.022);
+  }
+  ctx.restore();
+
+  // leaves
+  ctx.save();
+  for (let i = 0; i < 7; i++) {
+    const lx = w * (0.08 + 0.14 * i) + Math.sin(t * 0.4 * sp + i * 1.9) * w * 0.006;
+    const ly = i % 2 ? h * 0.14 : h * 0.86;
+    const ang = (i % 2 ? 1 : -1) * (0.9 + Math.sin(t * 0.3 + i) * 0.08);
+    const ll = m * (0.16 + (i % 3) * 0.05);
+    ctx.save();
+    ctx.translate(lx, ly);
+    ctx.rotate(ang);
+    const grad = ctx.createLinearGradient(0, 0, ll, 0);
+    grad.addColorStop(0, rgba(shade(i % 2 ? a1 : a2, -0.55), 0.9));
+    grad.addColorStop(1, rgba(shade(i % 2 ? a1 : a2, -0.25), 0.75));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(ll * 0.5, -ll * 0.26, ll, 0);
+    ctx.quadraticCurveTo(ll * 0.5, ll * 0.26, 0, 0);
+    ctx.fill();
+    ctx.strokeStyle = rgba(shade(a1, -0.6), 0.6);
+    ctx.lineWidth = Math.max(0.8, m * 0.003);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(ll * 0.92, 0);
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // branch
+  ctx.save();
+  ctx.strokeStyle = rgba(shade(a1, -0.62), 1);
+  ctx.lineWidth = m * 0.035;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  for (let i = 0; i <= 24; i++) {
+    const nx = i / 24;
+    const yy = branchY(nx);
+    if (i === 0) ctx.moveTo(0, yy);
+    else ctx.lineTo(nx * w, yy);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = rgba(shade(a1, -0.4), 0.5);
+  ctx.lineWidth = m * 0.008;
+  ctx.stroke();
+  ctx.restore();
+
+  /* ------------------------- behaviour ------------------------- */
+  // ease along the branch toward the pointer, else a lazy patrol
+  let want = 0.5 + Math.sin(t * 0.07 * sp) * 0.3;
+  let blendPush = 0;
+  if (ptr) {
+    want = clamp(ptr.x / w, 0.12, 0.88);
+    const prox = Math.exp(-Math.abs(ptr.x - bx) / (m * 0.5));
+    blendPush = (ptr.down ? 1 : 0.55) * prox;
+  }
+  const prevX = st.x;
+  st.x += (want - st.x) * (env ? 0.015 * (1 + blendPush) : 0.01);
+  if (Math.abs(st.x - prevX) > 0.0004) st.dir = st.x > prevX ? 1 : -1;
+  else if (ptr) st.dir = ptr.x >= bx ? 1 : -1;
+
+  // color blending — lean toward the accent under the finger
+  const accents = [a1, a2, a3];
+  let tgtHex = a1;
+  if (ptr && blendPush > 0.05) {
+    const third = clamp(Math.floor((ptr.x / w) * 3), 0, 2);
+    tgtHex = accents[third];
+  } else {
+    tgtHex = accents[Math.floor(t * 0.05) % 3];
+  }
+  const tgt = hexToRgb(tgtHex);
+  const rate = env ? 0.02 + blendPush * 0.09 : 0.02;
+  st.col.r = lerp(st.col.r, tgt[0], rate);
+  st.col.g = lerp(st.col.g, tgt[1], rate);
+  st.col.b = lerp(st.col.b, tgt[2], rate);
+  const bodyCol = `rgb(${Math.round(st.col.r)},${Math.round(st.col.g)},${Math.round(st.col.b)})`;
+  const bodyDark = `rgb(${Math.round(st.col.r * 0.45)},${Math.round(st.col.g * 0.45)},${Math.round(st.col.b * 0.45)})`;
+
+  // bugs update
+  if (env) {
+    for (const b of st.bugs) {
+      if (!b.alive) {
+        b.respawn -= env.dt;
+        if (b.respawn <= 0) b.alive = true;
+        continue;
+      }
+    }
+    if (st.tongue && t - st.tongue.t0 > 0.45) {
+      if (st.tongue.bug >= 0) st.bugs[st.tongue.bug].alive = false;
+      st.tongue = null;
+    }
+    for (const tap of env.pointer.taps) {
+      // tongue snaps to the nearest bug, or toward the finger
+      let best = -1;
+      let bd = m * 0.42;
+      for (let i = 0; i < st.bugs.length; i++) {
+        const b = st.bugs[i];
+        if (!b.alive) continue;
+        const bxp = b.r * w + Math.sin(t * b.sp + b.ph) * w * 0.05;
+        const byp = b.y * h + Math.cos(t * b.sp * 1.3 + b.ph) * h * 0.03;
+        const d = Math.hypot(bxp - bx, byp - by);
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
+      }
+      st.tongue = { t0: t, tx: tap.x * w, ty: tap.y * h, bug: best };
+      break;
+    }
+  }
+
+  /* ------------------------- the chameleon ------------------------- */
+  const face = st.dir;
+  const bodyL = m * 0.15;
+  const bodyH = m * 0.085;
+  const lift = m * 0.075;
+  const cx = bx;
+  const cy = by - lift;
+
+  ctx.save();
+  // legs gripping the branch
+  ctx.strokeStyle = bodyDark;
+  ctx.lineWidth = Math.max(1.5, m * 0.011);
+  ctx.lineCap = "round";
+  for (const s of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + s * bodyL * 0.45, cy + bodyH * 0.3);
+    ctx.quadraticCurveTo(cx + s * bodyL * 0.5, by + m * 0.01, cx + s * bodyL * 0.38, by);
+    ctx.stroke();
+  }
+  // tail spiral
+  ctx.strokeStyle = bodyDark;
+  ctx.lineWidth = Math.max(1.2, m * 0.012);
+  ctx.beginPath();
+  const tailDir = -face;
+  let ta = face > 0 ? Math.PI : 0;
+  let tr = bodyL * 0.42;
+  let tx = cx + tailDir * bodyL * 0.86;
+  let ty2 = cy + bodyH * 0.12;
+  ctx.moveTo(tx, ty2);
+  for (let i = 0; i < 26; i++) {
+    ta += tailDir * 0.42;
+    tr *= 0.87;
+    tx += Math.cos(ta) * tr;
+    ty2 += Math.sin(ta) * tr * 0.6;
+    ctx.lineTo(tx, ty2);
+  }
+  ctx.stroke();
+
+  // body
+  const squash = 1 + Math.sin(t * 1.1 * sp) * 0.02;
+  const grad = ctx.createRadialGradient(cx - bodyL * 0.2, cy - bodyH * 0.4, bodyH * 0.2, cx, cy, bodyL * 0.75);
+  grad.addColorStop(0, bodyCol);
+  grad.addColorStop(1, bodyDark);
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, bodyL * squash, bodyH * squash, face * 0.06, 0, TAU);
+  ctx.fill();
+  // back crest
+  ctx.strokeStyle = bodyDark;
+  ctx.lineWidth = Math.max(1, m * 0.006);
+  ctx.beginPath();
+  for (let i = 0; i <= 7; i++) {
+    const px2 = cx - bodyL * 0.7 + (i / 7) * bodyL * 1.4;
+    const py2 = cy - bodyH * 0.92 - Math.sin((i / 7) * Math.PI) * m * 0.016;
+    if (i === 0) ctx.moveTo(px2, py2);
+    else ctx.lineTo(px2, py2);
+  }
+  ctx.stroke();
+  // side stripes
+  ctx.strokeStyle = rgba("#ffffff", 0.14);
+  ctx.lineWidth = Math.max(1, m * 0.005);
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(cx - bodyL * 0.1 + i * bodyL * 0.22, cy, bodyH * 0.55, -0.5, 0.9);
+    ctx.stroke();
+  }
+
+  // head
+  const hx = cx + face * bodyL * 0.82;
+  const hy = cy - bodyH * 0.18;
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(cx + face * bodyL * 0.45, cy - bodyH * 0.5);
+  ctx.quadraticCurveTo(hx + face * bodyL * 0.28, hy - bodyH * 0.72, hx + face * bodyL * 0.42, hy);
+  ctx.quadraticCurveTo(hx + face * bodyL * 0.2, hy + bodyH * 0.55, cx + face * bodyL * 0.42, cy + bodyH * 0.5);
+  ctx.closePath();
+  ctx.fill();
+  // casque
+  ctx.beginPath();
+  ctx.moveTo(cx + face * bodyL * 0.4, cy - bodyH * 0.5);
+  ctx.quadraticCurveTo(hx - face * bodyL * 0.02, hy - bodyH * 1.5, hx + face * bodyL * 0.18, hy - bodyH * 0.42);
+  ctx.closePath();
+  ctx.fill();
+
+  // eye turret — tracks the pointer
+  const ex = hx + face * bodyL * 0.02;
+  const ey = hy - bodyH * 0.16;
+  ctx.fillStyle = rgba(shade(bodyCol, 0.45), 0.95);
+  ctx.beginPath();
+  ctx.arc(ex, ey, bodyH * 0.3, 0, TAU);
+  ctx.fill();
+  let lookA = face > 0 ? 0 : Math.PI;
+  if (ptr) lookA = Math.atan2(ptr.y - ey, ptr.x - ex);
+  ctx.fillStyle = "#1a1208";
+  ctx.beginPath();
+  ctx.arc(ex + Math.cos(lookA) * bodyH * 0.1, ey + Math.sin(lookA) * bodyH * 0.1, bodyH * 0.13, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = rgba("#ffffff", 0.8);
+  ctx.beginPath();
+  ctx.arc(ex + Math.cos(lookA) * bodyH * 0.14 - bodyH * 0.04, ey + Math.sin(lookA) * bodyH * 0.14 - bodyH * 0.05, bodyH * 0.04, 0, TAU);
+  ctx.fill();
+
+  // mouth line
+  ctx.strokeStyle = rgba("#000000", 0.35);
+  ctx.lineWidth = Math.max(0.8, m * 0.003);
+  ctx.beginPath();
+  ctx.moveTo(hx + face * bodyL * 0.06, hy + bodyH * 0.18);
+  ctx.quadraticCurveTo(hx + face * bodyL * 0.24, hy + bodyH * 0.34, hx + face * bodyL * 0.4, hy + bodyH * 0.1);
+  ctx.stroke();
+
+  // tongue
+  if (st.tongue) {
+    const age = (t - st.tongue.t0) / 0.45;
+    const reach = age < 0.4 ? age / 0.4 : 1 - (age - 0.4) / 0.6;
+    const txp = lerp(hx + face * bodyL * 0.38, st.tongue.tx, Math.min(1, reach));
+    const typ = lerp(hy + bodyH * 0.14, st.tongue.ty, Math.min(1, reach));
+    ctx.strokeStyle = rgba("#ff7a9c", 0.95);
+    ctx.lineWidth = Math.max(1.5, m * 0.012 * (1 - reach * 0.4));
+    ctx.beginPath();
+    ctx.moveTo(hx + face * bodyL * 0.38, hy + bodyH * 0.14);
+    ctx.quadraticCurveTo((hx + txp) / 2, (hy + typ) / 2 - m * 0.02, txp, typ);
+    ctx.stroke();
+    glowDot(ctx, txp, typ, m * 0.008, "#ffb3c6", m * 0.01, 0.8);
+  }
+
+  // throat bulge after a catch
+  if (st.tongue && t - st.tongue.t0 > 0.3) {
+    const b = Math.min(1, (t - st.tongue.t0 - 0.3) / 0.15);
+    ctx.fillStyle = rgba("#ffffff", 0.12 * b);
+    ctx.beginPath();
+    ctx.ellipse(hx - face * bodyL * 0.05, hy + bodyH * 0.4, bodyH * 0.34 * b, bodyH * 0.22 * b, 0, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // fireflies / bugs
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < st.bugs.length; i++) {
+    const b = st.bugs[i];
+    if (!b.alive) continue;
+    const bxp = b.r * w + Math.sin(t * b.sp + b.ph) * w * 0.05;
+    const byp = b.y * h + Math.cos(t * b.sp * 1.3 + b.ph) * h * 0.03;
+    const blink = 0.55 + 0.45 * Math.sin(t * 3.1 + b.ph * 5);
+    softOrb(ctx, bxp, byp, m * 0.035, a3, 0.5 * blink * p.glow);
+    glowDot(ctx, bxp, byp, m * 0.005, "#fff8dc", m * 0.008, 0.9);
+  }
+  ctx.restore();
+
+  // vignette
+  const vg = ctx.createRadialGradient(w / 2, h / 2, m * 0.4, w / 2, h / 2, Math.max(w, h) * 0.75);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.55), 0.5));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 39 · Lighthouse Bay — the beam follows your finger                  */
+/* ------------------------------------------------------------------ */
+
+type BayState = {
+  ang: number;
+  wind: number;
+  boats: { nx: number; sc: number; ph: number }[];
+  horns: number[];
+};
+
+const lighthouseBay: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const ptr = pointerPx(env, w, h);
+
+  const st = canvasState<BayState>(ctx, "bay", () => {
+    const rnd = mulberry32(p.seed);
+    const boats = [];
+    for (let i = 0; i < 3; i++) boats.push({ nx: 0.12 + rnd() * 0.6, sc: 0.8 + rnd() * 0.5, ph: rnd() * TAU });
+    return { ang: -0.6, wind: 0, boats, horns: [] };
+  });
+  const rnd = mulberry32(p.seed);
+
+  // sky
+  fillBg(ctx, w, h, shade(bg0, -0.2), bg1);
+  // stars
+  ctx.save();
+  for (let i = 0; i < 46; i++) {
+    const sxx = ((rnd() * 1.7) % 1) * w;
+    const syy = rnd() * h * 0.4;
+    const tw = 0.3 + 0.7 * Math.abs(Math.sin(t * 0.7 * sp + i * 1.7));
+    ctx.fillStyle = rgba("#ffffff", tw * 0.55);
+    ctx.fillRect(sxx, syy, 1.4, 1.4);
+  }
+  // moon
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.22, h * 0.14, m * 0.09, "#fdf6e3", 0.9);
+  softOrb(ctx, w * 0.22, h * 0.14, m * 0.2, "#fdf6e3", 0.12 * p.glow);
+  ctx.restore();
+
+  const seaY = h * 0.52;
+  const lampX = w * 0.82;
+  const lampY = h * 0.24;
+
+  /* --------------------------- beam angle --------------------------- */
+  const wantAng = ptr
+    ? Math.atan2(ptr.y - lampY, ptr.x - lampX)
+    : -0.9 + Math.sin(t * 0.16 * sp) * 0.5;
+  let dAng = wantAng - st.ang;
+  while (dAng > Math.PI) dAng -= TAU;
+  while (dAng < -Math.PI) dAng += TAU;
+  const turnRate = env ? 1.6 : 0.5;
+  st.ang += clamp(dAng, -turnRate * (env?.dt ?? 1 / 60), turnRate * (env?.dt ?? 1 / 60));
+
+  // foghorn taps
+  if (env) {
+    if (env.pointer.taps.length > 0) st.horns.push(t);
+    st.horns = st.horns.filter((t0) => t - t0 < 2.2);
+  }
+  const hornBoost = st.horns.length ? Math.max(...st.horns.map((t0) => Math.exp(-(t - t0) * 1.6))) : 0;
+
+  /* ----------------------------- beam ----------------------------- */
+  const beamLen = Math.max(w, h) * 1.5;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const [spread, alpha, col] of [
+    [0.16, 0.1 + hornBoost * 0.12, a3],
+    [0.055, 0.22 + hornBoost * 0.2, "#fff8e0"],
+  ] as const) {
+    const g = ctx.createLinearGradient(lampX, lampY, lampX + Math.cos(st.ang) * beamLen, lampY + Math.sin(st.ang) * beamLen);
+    g.addColorStop(0, rgba(col, alpha * (0.8 + p.glow * 0.3)));
+    g.addColorStop(0.75, rgba(col, alpha * 0.35));
+    g.addColorStop(1, rgba(col, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(lampX, lampY);
+    ctx.lineTo(lampX + Math.cos(st.ang - spread) * beamLen, lampY + Math.sin(st.ang - spread) * beamLen);
+    ctx.lineTo(lampX + Math.cos(st.ang + spread) * beamLen, lampY + Math.sin(st.ang + spread) * beamLen);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // lamp glow
+  softOrb(ctx, lampX, lampY, m * 0.07, "#fff8e0", 0.95);
+  softOrb(ctx, lampX, lampY, m * (0.18 + hornBoost * 0.2), a3, 0.25 + hornBoost * 0.3);
+  // foghorn rings
+  for (const t0 of st.horns) {
+    const age = (t - t0) / 2.2;
+    ctx.strokeStyle = rgba(a2, (1 - age) * 0.4);
+    ctx.lineWidth = Math.max(1, m * 0.006 * (1 - age));
+    ctx.beginPath();
+    ctx.arc(lampX, lampY, age * m * 0.7, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // sea — layered wave bands
+  for (let i = 0; i < 5; i++) {
+    const yy = seaY + (i / 5) * (h - seaY) * 0.9;
+    ctx.fillStyle = rgba(shade(bg1, -0.12 - i * 0.09), 1);
+    ctx.beginPath();
+    ctx.moveTo(0, yy);
+    for (let x = 0; x <= w; x += m * 0.05) {
+      ctx.lineTo(x, yy + Math.sin(x / m * 3 + t * (0.7 + i * 0.22) * sp + i * 2) * m * 0.008 * (1 + i * 0.5));
+    }
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // moon glade
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, w * 0.22, seaY + (h - seaY) * 0.12, m * 0.3, "#fdf6e3", 0.1);
+  // beam shimmer path on the water where the light lands
+  const beamT = (seaY + m * 0.05 - lampY) / Math.sin(st.ang);
+  if (Math.sin(st.ang) > 0.05 && beamT > 0) {
+    const hx = lampX + Math.cos(st.ang) * beamT;
+    if (hx > -m && hx < w + m) {
+      for (let i = 0; i < 14; i++) {
+        const gy = seaY + m * 0.01 + i * m * 0.022;
+        const spread = m * (0.01 + i * 0.012);
+        const gx = hx + Math.sin(t * 2.2 + i) * spread * 0.4;
+        ctx.fillStyle = rgba("#fff8e0", (0.5 - i * 0.03) * (0.5 + p.glow * 0.4));
+        ctx.fillRect(gx - spread / 2, gy, spread, Math.max(1, m * 0.004));
+      }
+    }
+  }
+  ctx.restore();
+
+  // boats
+  for (const b of st.boats) {
+    const bob = Math.sin(t * 0.9 * sp + b.ph) * m * 0.008 + hornBoost * Math.sin(t * 7 + b.ph) * m * 0.006;
+    const bxx = b.nx * w;
+    const byy = seaY + (h - seaY) * 0.3 + b.ph * m * 0.001 + bob;
+    const bs = m * 0.05 * b.sc;
+    ctx.save();
+    ctx.translate(bxx, byy);
+    ctx.rotate(Math.sin(t * 0.9 * sp + b.ph) * 0.06 + hornBoost * Math.sin(t * 6) * 0.05);
+    ctx.fillStyle = rgba(shade(bg0, -0.5), 0.95);
+    ctx.beginPath();
+    ctx.moveTo(-bs, 0);
+    ctx.quadraticCurveTo(0, bs * 0.5, bs, 0);
+    ctx.lineTo(bs * 0.7, -bs * 0.18);
+    ctx.lineTo(-bs * 0.8, -bs * 0.18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillRect(-bs * 0.1, -bs * 0.75, bs * 0.1, bs * 0.6);
+    // mast light
+    ctx.fillStyle = rgba(a3, 0.9);
+    ctx.fillRect(-bs * 0.12, -bs * 0.82, bs * 0.14, bs * 0.1);
+    ctx.restore();
+  }
+
+  // headland + lighthouse
+  ctx.fillStyle = rgba(shade(bg0, -0.6), 1);
+  ctx.beginPath();
+  ctx.moveTo(w * 0.66, h);
+  ctx.quadraticCurveTo(w * 0.72, h * 0.62, w * 0.78, h * 0.5);
+  ctx.quadraticCurveTo(w * 0.84, h * 0.42, w * 0.88, h * 0.4);
+  ctx.lineTo(w, h * 0.42);
+  ctx.lineTo(w, h);
+  ctx.closePath();
+  ctx.fill();
+  // tower
+  ctx.save();
+  ctx.translate(lampX, h * 0.4);
+  const tw2 = m * 0.05;
+  ctx.fillStyle = rgba(shade(bg0, 0.3), 1);
+  ctx.beginPath();
+  ctx.moveTo(-tw2 * 0.55, 0);
+  ctx.lineTo(-tw2 * 0.8, -h * 0.14);
+  ctx.lineTo(tw2 * 0.8, -h * 0.14);
+  ctx.lineTo(tw2 * 0.55, 0);
+  ctx.closePath();
+  ctx.fill();
+  // stripes
+  ctx.save();
+  ctx.clip();
+  ctx.fillStyle = rgba(a2, 0.85);
+  for (let i = 0; i < 2; i++) ctx.fillRect(-tw2, -h * 0.14 + h * 0.035 + i * h * 0.055, tw2 * 2, h * 0.028);
+  ctx.restore();
+  // lamp room
+  ctx.fillStyle = rgba(shade(bg0, 0.15), 1);
+  ctx.fillRect(-tw2 * 0.9, -h * 0.155, tw2 * 1.8, h * 0.016);
+  // roof
+  ctx.fillStyle = rgba(shade(bg0, -0.55), 1);
+  ctx.beginPath();
+  ctx.moveTo(-tw2, -h * 0.155);
+  ctx.lineTo(0, -h * 0.175);
+  ctx.lineTo(tw2, -h * 0.155);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // rain — wind follows pointer sweeps
+  const windWant = ptr ? clamp(ptr.vx / m, -0.7, 0.7) : Math.sin(t * 0.2 * sp) * 0.2;
+  st.wind += (windWant - st.wind) * (env ? 0.06 : 0.02);
+  ctx.save();
+  ctx.strokeStyle = rgba("#cfe8ff", 0.26);
+  ctx.lineWidth = 1;
+  const rnd2 = mulberry32(p.seed + 7);
+  for (let i = 0; i < 60 * p.density; i++) {
+    const dx0 = ((rnd2() * 3.1) % 1) * w;
+    const dy0 = ((rnd2() * 7.7) % 1) * h;
+    const fall = ((t * (0.55 + rnd2() * 0.4) * sp + rnd2()) % 1);
+    const dy = (dy0 + fall * h) % h;
+    const dx = (dx0 + st.wind * fall * h * 0.6 + w) % w;
+    ctx.beginPath();
+    ctx.moveTo(dx, dy);
+    ctx.lineTo(dx + st.wind * m * 0.02, dy + m * 0.028);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // vignette
+  const vg = ctx.createRadialGradient(w / 2, h * 0.45, m * 0.35, w / 2, h * 0.45, Math.max(w, h) * 0.85);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.6), 0.55));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 40 · Ant Farm — drag to dig glowing tunnels                         */
+/* ------------------------------------------------------------------ */
+
+type Ant = { x: number; y: number; vx: number; vy: number; ph: number; sp: number; carrying: boolean };
+type FarmState = {
+  ants: Ant[];
+  tunnels: { x: number; y: number; r: number }[];
+  sugar: { x: number; y: number; t0: number } | null;
+  lastDig: number;
+};
+
+const antFarm: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+  const ptr = pointerPx(env, w, h);
+
+  const st = canvasState<FarmState>(ctx, "farm", () => {
+    const ants: Ant[] = [];
+    for (let i = 0; i < 14; i++)
+      ants.push({ x: rnd() * 0.9 + 0.05, y: 0.1 + rnd() * 0.05, vx: 0, vy: 0, ph: rnd() * TAU, sp: 0.6 + rnd() * 0.7, carrying: false });
+    // a starter chamber so static exports look alive
+    const tunnels = [
+      { x: 0.3, y: 0.4, r: 0.035 },
+      { x: 0.42, y: 0.55, r: 0.03 },
+      { x: 0.68, y: 0.72, r: 0.04 },
+      { x: 0.55, y: 0.86, r: 0.032 },
+    ];
+    return { ants, tunnels, sugar: null, lastDig: 0 };
+  });
+
+  const soilY = h * 0.16;
+
+  // sky + soil strata
+  fillBg(ctx, w, h, shade(a1, 0.5), shade(a1, 0.2));
+  const strata = [shade(bg0, -0.05), shade(bg0, -0.22), shade(bg0, -0.4), shade(bg0, -0.58)];
+  for (let i = 0; i < 4; i++) {
+    const y0 = soilY + (h - soilY) * (i / 4);
+    const y1 = soilY + (h - soilY) * ((i + 1) / 4);
+    ctx.fillStyle = strata[i];
+    ctx.beginPath();
+    ctx.moveTo(0, y0);
+    for (let x = 0; x <= w; x += m * 0.06) {
+      ctx.lineTo(x, y0 + Math.sin(x / m * 2.4 + i * 3.1) * m * 0.012);
+    }
+    ctx.lineTo(w, y1 + m * 0.02);
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // pebbles + roots
+  for (let i = 0; i < 22; i++) {
+    const pxx = ((rnd() * 4.3) % 1) * w;
+    const pyy = soilY + rnd() * (h - soilY) * 0.92;
+    ctx.fillStyle = rgba(rnd() > 0.5 ? shade(bg0, 0.28) : shade(bg0, -0.3), 0.5);
+    ctx.beginPath();
+    ctx.ellipse(pxx, pyy, m * (0.006 + rnd() * 0.012), m * (0.005 + rnd() * 0.008), rnd() * TAU, 0, TAU);
+    ctx.fill();
+  }
+  for (let i = 0; i < 5; i++) {
+    const rx = ((rnd() * 6.1) % 1) * w;
+    ctx.strokeStyle = rgba(shade(a2, -0.3), 0.35);
+    ctx.lineWidth = Math.max(1, m * 0.004);
+    ctx.beginPath();
+    ctx.moveTo(rx, soilY);
+    ctx.quadraticCurveTo(rx + (rnd() - 0.5) * w * 0.1, soilY + (h - soilY) * 0.3, rx + (rnd() - 0.5) * w * 0.14, soilY + (h - soilY) * 0.55);
+    ctx.stroke();
+  }
+
+  // grass tufts on the surface
+  ctx.strokeStyle = rgba(shade(a1, -0.15), 0.9);
+  ctx.lineWidth = Math.max(1, m * 0.004);
+  for (let i = 0; i < 26; i++) {
+    const gx = ((rnd() * 9.7) % 1) * w;
+    const sway = Math.sin(t * 1.2 * sp + i) * m * 0.006;
+    ctx.beginPath();
+    ctx.moveTo(gx, soilY + m * 0.008);
+    ctx.quadraticCurveTo(gx + sway, soilY - m * 0.02, gx + sway * 2, soilY - m * (0.03 + (i % 4) * 0.008));
+    ctx.stroke();
+  }
+
+  /* --------------------------- digging --------------------------- */
+  if (ptr && ptr.down && ptr.y > soilY && t - st.lastDig > 0.05) {
+    const last = st.tunnels[st.tunnels.length - 1];
+    // deterministic radius — no Math.random in the render path
+    const npt = { x: ptr.x / w, y: ptr.y / h, r: 0.03 + ((i32(t * 1000) % 100) / 100) * 0.012 };
+    if (!last || Math.hypot((last.x - npt.x) * w, (last.y - npt.y) * h) > m * 0.02) {
+      st.tunnels.push(npt);
+      if (st.tunnels.length > 240) st.tunnels.shift();
+      st.lastDig = t;
+    }
+  }
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      if (tap.y * h > soilY) st.sugar = { x: tap.x * w, y: tap.y * h, t0: t };
+    }
+    if (st.sugar && t - st.sugar.t0 > 9) st.sugar = null;
+  }
+
+  // tunnels — soft dark holes with a lit rim
+  ctx.save();
+  for (const tu of st.tunnels) {
+    const tx = tu.x * w;
+    const ty = tu.y * h;
+    ctx.fillStyle = rgba(shade(bg0, -0.72), 0.92);
+    ctx.beginPath();
+    ctx.arc(tx, ty, tu.r * m, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = rgba(a3, 0.14 + 0.1 * p.glow);
+    ctx.lineWidth = Math.max(1, m * 0.003);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  /* --------------------------- ants --------------------------- */
+  const dt = env?.dt ?? 1 / 60;
+  for (const ant of st.ants) {
+    ant.ph += dt * 9 * ant.sp * sp;
+    // choose a goal
+    let gx: number;
+    let gy: number;
+    const surface = ant.y * h < soilY + m * 0.02;
+    if (st.sugar && t - st.sugar.t0 < 9) {
+      gx = st.sugar.x;
+      gy = st.sugar.y;
+      if (Math.hypot(ant.x * w - gx, ant.y * h - gy) < m * 0.03) ant.carrying = true;
+    } else if (surface) {
+      gx = ant.x * w + Math.sin(ant.ph * 0.13) * w * 0.2;
+      gy = soilY + m * 0.004;
+    } else if (st.tunnels.length) {
+      // nearest tunnel point to crawl through
+      let best = st.tunnels[0];
+      let bd = 1e9;
+      for (const tu of st.tunnels) {
+        const d = (tu.x - ant.x) ** 2 + (tu.y - ant.y) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = tu;
+        }
+      }
+      gx = best.x * w;
+      gy = best.y * h;
+    } else {
+      gx = ant.x * w + Math.sin(ant.ph * 0.11) * w * 0.1;
+      gy = clamp(ant.y * h + Math.cos(ant.ph * 0.09) * m * 0.05, soilY + m * 0.03, h * 0.97);
+    }
+    const ax = (gx - ant.x * w) / m;
+    const ay = (gy - ant.y * h) / m;
+    const wig = 0.6 * Math.sin(ant.ph * 0.7);
+    ant.vx += (ax * 0.9 + wig * ay) * dt * 2.4;
+    ant.vy += (ay * 0.9 - wig * ax) * dt * 2.4;
+    const vmax = 0.28 * ant.sp * sp;
+    const vv = Math.hypot(ant.vx, ant.vy);
+    if (vv > vmax) {
+      ant.vx = (ant.vx / vv) * vmax;
+      ant.vy = (ant.vy / vv) * vmax;
+    }
+    ant.x = clamp(ant.x + ant.vx * dt, 0.02, 0.98);
+    ant.y = clamp(ant.y + ant.vy * dt, 0.06, 0.97);
+    if (surface) ant.vy += (soilY / h - ant.y) * dt * 2;
+  }
+
+  // draw ants
+  for (const ant of st.ants) {
+    const axp = ant.x * w;
+    const ayp = ant.y * h;
+    const heading = Math.atan2(ant.vy, ant.vx) || 0;
+    const as = m * 0.0075;
+    ctx.save();
+    ctx.translate(axp, ayp);
+    ctx.rotate(heading);
+    // legs
+    ctx.strokeStyle = rgba("#1a0f08", 0.9);
+    ctx.lineWidth = Math.max(0.7, as * 0.22);
+    for (let i = 0; i < 3; i++) {
+      const sw = Math.sin(ant.ph + i * 2.1) * 0.5;
+      for (const s of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo((i - 1) * as, 0);
+        ctx.lineTo((i - 1) * as + Math.cos(sw * s) * as * 1.1, s * as * 1.15);
+        ctx.stroke();
+      }
+    }
+    // body: abdomen, thorax, head
+    ctx.fillStyle = "#241407";
+    ctx.beginPath();
+    ctx.ellipse(-as * 1.35, 0, as * 0.95, as * 0.68, 0, 0, TAU);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, as * 0.52, 0, TAU);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(as * 0.75, 0, as * 0.44, 0, TAU);
+    ctx.fill();
+    // amber rim light
+    ctx.strokeStyle = rgba(a3, 0.5);
+    ctx.lineWidth = Math.max(0.6, as * 0.16);
+    ctx.beginPath();
+    ctx.arc(-as * 1.35, 0, as * 0.95, Math.PI * 0.7, Math.PI * 1.5);
+    ctx.stroke();
+    // antennae
+    ctx.strokeStyle = rgba("#1a0f08", 0.9);
+    ctx.lineWidth = Math.max(0.6, as * 0.18);
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(as * 1.1, 0);
+      ctx.quadraticCurveTo(as * 1.6, s * as * 0.5, as * 2.0, s * as * 0.85);
+      ctx.stroke();
+    }
+    // carried crumb
+    if (ant.carrying) {
+      ctx.fillStyle = rgba(a3, 0.95);
+      ctx.beginPath();
+      ctx.arc(as * 1.35, 0, as * 0.3, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // sugar drop
+  if (st.sugar) {
+    const age = t - st.sugar.t0;
+    const pulse = 0.75 + 0.25 * Math.sin(t * 5);
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    softOrb(ctx, st.sugar.x, st.sugar.y, m * 0.05 * pulse, a3, 0.5 * p.glow);
+    ctx.restore();
+    glowDot(ctx, st.sugar.x, st.sugar.y, m * 0.009, "#fff3d6", m * 0.012, 0.95);
+    if (age < 0.4) {
+      // falling crumbs
+      for (let i = 0; i < 5; i++) {
+        const cy2 = st.sugar.y - (0.4 - age) * m * 0.2 + i * 2;
+        ctx.fillStyle = rgba(a3, 0.7);
+        ctx.fillRect(st.sugar.x + Math.sin(i * 2.4) * m * 0.01, cy2, 2, 2);
+      }
+    }
+  }
+
+  // pointer dig glow
+  if (ptr && ptr.down && ptr.y > soilY) softOrb(ctx, ptr.x, ptr.y, m * 0.05, a3, 0.2);
+};
+
+/** tiny deterministic int hash used for dig-radius jitter (no Math.random) */
+function i32(n: number): number {
+  return Math.imul(n | 0, 2654435761) >>> 8;
+}
+
+/* ------------------------------------------------------------------ */
 /* registry                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -5969,4 +6900,8 @@ export const INTERACTIVE_ENGINES = {
   bonsaiGrow,
   candleSanctuary,
   stainedGlass,
+  pinArt,
+  chameleonGarden,
+  lighthouseBay,
+  antFarm,
 } as const;
