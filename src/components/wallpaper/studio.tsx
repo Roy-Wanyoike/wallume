@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   BatteryFull,
+  Clapperboard,
   Dices,
   Download,
   Lock,
@@ -41,6 +42,8 @@ type Props = {
   onOpenAmbient: () => void;
   onOpenShare: () => void;
   onShuffle: () => void;
+  autoTour: boolean;
+  onToggleAutoTour: () => void;
   onDefChange: (def: WallpaperDef) => void;
   onPatch: (patch: Partial<WallpaperConfig>) => void;
   onReset: () => void;
@@ -218,6 +221,8 @@ export function Studio({
   onOpenAmbient,
   onOpenShare,
   onShuffle,
+  autoTour,
+  onToggleAutoTour,
   onDefChange,
   onPatch,
   onReset,
@@ -295,6 +300,20 @@ export function Studio({
                 <MoonStar className="h-4 w-4" /> Ambient
               </Button>
             </div>
+
+            {/* auto-tour — a new scene every 15s; stops on immersive overlays */}
+            <Button
+              variant="outline"
+              className={cn(
+                "h-11 w-full gap-2",
+                autoTour && "border-fuchsia-400/50 bg-fuchsia-500/10 text-fuchsia-200 shadow-[0_0_18px_-6px] shadow-fuchsia-400/50",
+              )}
+              onClick={onToggleAutoTour}
+              aria-pressed={autoTour}
+            >
+              <Clapperboard className={cn("h-4 w-4", autoTour && "animate-pulse")} />
+              {autoTour ? "Auto-tour on — scene every 15s" : "Auto-tour the collection"}
+            </Button>
 
             <p className="flex items-center justify-center gap-4 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">

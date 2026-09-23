@@ -30,8 +30,12 @@ export function ScrollProgress() {
   return (
     <div aria-hidden className="pointer-events-none fixed inset-x-0 top-0 z-[70] h-[3px]">
       <div
-        className="h-full origin-left bg-gradient-to-r from-fuchsia-500 via-rose-500 to-amber-400 transition-transform duration-100 ease-out"
-        style={{ transform: `scaleX(${progress})`, opacity: progress > 0.005 ? 1 : 0 }}
+        className="h-full origin-left transition-transform duration-100 ease-out"
+        style={{
+          transform: `scaleX(${progress})`,
+          opacity: progress > 0.005 ? 1 : 0,
+          background: "linear-gradient(90deg, var(--wallume-a1, #e879f9), var(--wallume-a2, #fb7185), var(--wallume-a3, #fcd34d))",
+        }}
       />
     </div>
   );

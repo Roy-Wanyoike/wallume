@@ -54,7 +54,9 @@ export function SotdArchive({ onLoad }: Props) {
               <WallpaperCanvas
                 def={def}
                 config={defaultConfig(def) as WallpaperConfig}
-                fps={24}
+                // static hero frame — 14 always-live minis would keep the
+                // compositor permanently busy; still shows each scene's look
+                static
                 maxPixels={45_000}
                 className="absolute inset-0"
               />

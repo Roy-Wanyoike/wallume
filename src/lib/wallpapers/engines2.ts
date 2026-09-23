@@ -3480,6 +3480,800 @@ const vinylLounge: DrawFn = (ctx, w, h, t, p, env) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* 35 · Snow Globe — stir the snow, tap the glass for shimmer          */
+/* ------------------------------------------------------------------ */
+
+type SnowState = {
+  flakes: { x: number; y: number; r: number; ph: number; sp: number; c: number; ox: number; oy: number }[];
+  ripples: { x: number; y: number; t0: number }[];
+  swirl: number;
+};
+
+const snowGlobe: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+
+  // backdrop shelf — dark room behind the glass
+  fillBg(ctx, w, h, shade(bg0, -0.55), shade(bg0, -0.7));
+
+  const st = canvasState<SnowState>(ctx, `globe${p.seed}|${p.density}`, () => {
+    const flakes: SnowState["flakes"] = [];
+    const n = Math.round(clamp(90 * p.density * areaScale(w, h), 40, 190));
+    for (let i = 0; i < n; i++) {
+      flakes.push({
+        x: rnd(), y: rnd(),
+        r: 0.35 + rnd() * 1.15,
+        ph: rnd() * TAU,
+        sp: 0.5 + rnd() * 1.1,
+        c: 2 + Math.floor(rnd() * 3),
+        ox: 0, oy: 0,
+      });
+    }
+    return { flakes, ripples: [], swirl: 0 };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  // sphere geometry — centered slightly above mid
+  const cx = w / 2;
+  const cy = h * 0.42;
+  const R = Math.min(w * 0.42, h * 0.34);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.ripples.push({ x: tap.x * w, y: tap.y * h, t0: t });
+      if (st.ripples.length > 8) st.ripples.shift();
+    }
+  }
+  st.ripples = st.ripples.filter((r) => t - r.t0 < 1.2);
+
+  // inside the glass -----------------------------------------------
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, TAU);
+  ctx.clip();
+
+  // winter sky
+  const sky = ctx.createLinearGradient(0, cy - R, 0, cy + R);
+  sky.addColorStop(0, shade(bg0, -0.15));
+  sky.addColorStop(1, bg1);
+  ctx.fillStyle = sky;
+  ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+
+  // moon glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, cx + R * 0.42, cy - R * 0.5, R * 0.3, a3, 0.16 + p.glow * 0.12);
+  ctx.restore();
+
+  // distant pines
+  const pines = Math.round(clamp(7 * p.density, 4, 11));
+  for (let i = 0; i < pines; i++) {
+    const px = cx - R + ((i + 0.5) / pines) * R * 2 + Math.sin(i * 3.7) * R * 0.03;
+    const ph2 = R * (0.16 + ((i * 13) % 7) / 40);
+    const py = cy + R * 0.62 - ph2 * 0.1;
+    ctx.fillStyle = rgba(shade(bg0, -0.45), 0.85);
+    for (let s = 0; s < 3; s++) {
+      const sw = ph2 * (0.42 - s * 0.1);
+      const sy = py - (ph2 * s) / 3;
+      ctx.beginPath();
+      ctx.moveTo(px - sw, sy);
+      ctx.lineTo(px, sy - ph2 * 0.5);
+      ctx.lineTo(px + sw, sy);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // cozy cottage with a warm window
+  const hx = cx - R * 0.28;
+  const hy = cy + R * 0.55;
+  const hs = R * 0.16;
+  ctx.fillStyle = rgba(shade(bg0, -0.5), 0.95);
+  ctx.fillRect(hx - hs, hy - hs * 0.8, hs * 2, hs * 0.8);
+  ctx.beginPath();
+  ctx.moveTo(hx - hs * 1.2, hy - hs * 0.8);
+  ctx.lineTo(hx, hy - hs * 1.5);
+  ctx.lineTo(hx + hs * 1.2, hy - hs * 0.8);
+  ctx.closePath();
+  ctx.fill();
+  // window glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const win = 0.5 + 0.5 * Math.sin(t * 0.8 * sp + 1.2);
+  softOrb(ctx, hx, hy - hs * 0.35, hs * 0.55 * (1 + win * 0.1), a3, (0.35 + win * 0.2) * (0.5 + p.glow * 0.5), 0.8);
+  ctx.restore();
+
+  // snow — falls, drifts, and swirls around the pointer
+  const dec = Math.exp(-dt * 1.6);
+  st.swirl *= Math.exp(-dt * 0.9);
+  for (const f of st.flakes) {
+    f.ox *= dec;
+    f.oy *= dec;
+
+    const travel = R * 2.25;
+    const fallY = cy - R - f.y * travel + ((t * f.sp * m * 0.055 * sp + f.ph * m * 0.12) % travel);
+    const baseX = cx - R + f.x * R * 2 + Math.sin(t * 0.7 * sp + f.ph) * R * 0.05;
+
+    if (ptr && ptr.inside !== false) {
+      const dx = baseX + f.ox - ptr.x;
+      const dy = fallY + f.oy - ptr.y;
+      const d = Math.hypot(dx, dy);
+      const Rr = m * 0.3;
+      if (d < Rr && d > 0.001) {
+        const k = 1 - d / Rr;
+        // tangential swirl + slight outward push
+        const tx = -dy / d;
+        const ty = dx / d;
+        const push = k * (ptr.down ? 1.5 : 0.7);
+        f.ox += (tx * 0.9 + (dx / d) * 0.5) * push * m * 0.05 * dt;
+        f.oy += (ty * 0.9 + (dy / d) * 0.5) * push * m * 0.05 * dt;
+        st.swirl = Math.min(1, st.swirl + k * dt * 2);
+      }
+    }
+
+    const fx = baseX + f.ox;
+    const fy = fallY + f.oy;
+    const fl = 0.55 + 0.45 * Math.sin(t * f.sp * 2.2 + f.ph * 3);
+    glowDot(ctx, fx, fy, f.r * (0.7 + p.glow * 0.35), p.colors[f.c], 4 * p.glow * fl, 0.5 + fl * 0.45);
+  }
+  ctx.restore();
+
+  // glass shell — edge highlight + specular arcs
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.strokeStyle = rgba("#ffffff", 0.1 + p.glow * 0.08);
+  ctx.lineWidth = Math.max(1, m * 0.008);
+  ctx.beginPath();
+  ctx.arc(cx, cy, R - m * 0.006, 0, TAU);
+  ctx.stroke();
+  // top-left specular arc
+  ctx.strokeStyle = rgba("#ffffff", 0.3 + p.glow * 0.2);
+  ctx.lineWidth = Math.max(1.5, m * 0.014);
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 0.86, Math.PI * 1.12, Math.PI * 1.42);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 0.93, Math.PI * 1.2, Math.PI * 1.3);
+  ctx.stroke();
+  // inner bloom at rim
+  softOrb(ctx, cx - R * 0.45, cy - R * 0.5, R * 0.5, a1, 0.05 + p.glow * 0.04);
+  ctx.restore();
+
+  // glass shimmer ripples from taps
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const r of st.ripples) {
+    const age = (t - r.t0) / 1.2;
+    ctx.strokeStyle = rgba(a3, (1 - age) * 0.5);
+    ctx.lineWidth = Math.max(1, m * 0.007 * (1 - age));
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, age * m * 0.3, 0, TAU);
+    ctx.stroke();
+    ctx.strokeStyle = rgba("#ffffff", (1 - age) * 0.3);
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, age * m * 0.2, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // base — turned wood pedestal
+  const baseY = cy + R * 0.98;
+  const bw = R * 1.05;
+  const base = ctx.createLinearGradient(0, baseY, 0, baseY + m * 0.09);
+  base.addColorStop(0, shade(a2, -0.15));
+  base.addColorStop(1, shade(bg0, -0.35));
+  ctx.fillStyle = base;
+  ctx.beginPath();
+  ctx.roundRect(cx - bw / 2, baseY, bw, m * 0.05, m * 0.012);
+  ctx.fill();
+  ctx.fillStyle = shade(bg0, -0.42);
+  ctx.beginPath();
+  ctx.roundRect(cx - bw * 0.36, baseY + m * 0.05, bw * 0.72, m * 0.04, m * 0.01);
+  ctx.fill();
+  // base highlight
+  ctx.fillStyle = rgba(a3, 0.14);
+  ctx.fillRect(cx - bw * 0.4, baseY + m * 0.006, bw * 0.8, Math.max(1, m * 0.004));
+
+  // floor shadow
+  const sh = ctx.createRadialGradient(cx, baseY + m * 0.1, 0, cx, baseY + m * 0.1, bw * 0.8);
+  sh.addColorStop(0, rgba("#000000", 0.5));
+  sh.addColorStop(1, rgba("#000000", 0));
+  ctx.fillStyle = sh;
+  ctx.fillRect(cx - bw, baseY, bw * 2, m * 0.22);
+};
+
+/* ------------------------------------------------------------------ */
+/* 36 · Neon Rain — the rain bends away from your cursor               */
+/* ------------------------------------------------------------------ */
+
+type RainCityState = {
+  drops: { x: number; y: number; len: number; sp: number; ph: number; c: number; ox: number }[];
+  splashes: { x: number; y: number; t0: number }[];
+  flick: number;
+  wind: number;
+};
+
+const neonRain: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<RainCityState>(ctx, `ncity${p.seed}|${p.density}`, () => {
+    const drops: RainCityState["drops"] = [];
+    const n = Math.round(clamp(110 * p.density * areaScale(w, h), 50, 210));
+    for (let i = 0; i < n; i++) {
+      drops.push({
+        x: rnd(), y: rnd(),
+        len: 0.5 + rnd() * 1.3,
+        sp: 0.8 + rnd() * 1.5,
+        ph: rnd() * TAU,
+        c: 2 + Math.floor(rnd() * 3),
+        ox: 0,
+      });
+    }
+    return { drops, splashes: [], flick: 0, wind: 0 };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.splashes.push({ x: tap.x * w, y: tap.y * h, t0: t });
+      if (st.splashes.length > 10) st.splashes.shift();
+      st.flick = 1;
+    }
+  }
+  st.splashes = st.splashes.filter((s) => t - s.t0 < 0.9);
+  st.flick *= Math.exp(-dt * 3);
+
+  // skyline — two layers of silhouette towers with neon windows
+  const drawSkyline = (baseY: number, hMin: number, hMax: number, seed2: number, alpha: number, winColor: string) => {
+    const r2 = mulberry32(seed2);
+    let x = -w * 0.02;
+    while (x < w * 1.02) {
+      const bw = w * (0.05 + r2() * 0.09);
+      const bh = h * (hMin + r2() * (hMax - hMin));
+      ctx.fillStyle = rgba(shade(bg0, -0.5), alpha);
+      ctx.fillRect(x, baseY - bh, bw, bh);
+      // windows grid
+      const cols = Math.max(1, Math.floor(bw / (m * 0.035)));
+      const rows = Math.max(1, Math.floor(bh / (m * 0.045)));
+      for (let c2 = 0; c2 < cols; c2++) {
+        for (let r3 = 0; r3 < rows; r3++) {
+          if (r2() > 0.72) {
+            const wx = x + (c2 + 0.5) * (bw / cols);
+            const wy = baseY - bh + (r3 + 0.5) * (bh / rows);
+            ctx.fillStyle = rgba(winColor, 0.5 + r2() * 0.4);
+            ctx.fillRect(wx - m * 0.004, wy - m * 0.005, m * 0.008, m * 0.01);
+          }
+        }
+      }
+      x += bw + w * 0.012;
+    }
+  };
+
+  // flicker boost after taps
+  const flickBoost = 1 + st.flick * 1.6;
+
+  // neon sign orbs on buildings
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 5; i++) {
+    const nx = w * (0.1 + i * 0.19) + Math.sin(i * 2.7) * w * 0.02;
+    const ny = h * (0.2 + 0.13 * ((i * 3) % 4));
+    const pulse = 0.6 + 0.4 * Math.sin(t * (1.2 + i * 0.4) * sp + i * 2.1);
+    softOrb(ctx, nx, ny, m * (0.05 + 0.02 * (i % 2)) * flickBoost, [a1, a2, a3][i % 3], (0.14 + pulse * 0.12 + p.glow * 0.1) * flickBoost);
+  }
+  ctx.restore();
+
+  drawSkyline(h * 0.82, 0.18, 0.4, p.seed + 11, 0.9, a3);
+  drawSkyline(h * 0.95, 0.1, 0.28, p.seed + 77, 0.75, a1);
+
+  // wet street reflections
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 4; i++) {
+    const ry = h * (0.86 + i * 0.035);
+    const g = ctx.createLinearGradient(0, ry, w, ry + m * 0.02);
+    g.addColorStop(0, rgba([a1, a2, a3][i % 3], 0));
+    g.addColorStop(0.5, rgba([a1, a2, a3][i % 3], 0.08 + p.glow * 0.05));
+    g.addColorStop(1, rgba([a1, a2, a3][i % 3], 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, ry, w, m * 0.012);
+  }
+  ctx.restore();
+
+  // rain — bends away from the cursor like a windshield gust
+  const dec = Math.exp(-dt * 2.2);
+  if (ptr) st.wind += ((ptr.vx / (m * 2)) * 0.4 - st.wind) * Math.min(1, dt * 3);
+  for (const d of st.drops) {
+    d.ox *= dec;
+
+    const travel = h * 1.25;
+    const fallY = (d.y * travel + t * d.sp * m * 0.32 * sp) % travel - h * 0.12;
+    const baseX = d.x * w + Math.sin(t * 0.9 * sp + d.ph) * m * 0.01;
+
+    if (ptr) {
+      const dx = baseX + d.ox - ptr.x;
+      const dy = fallY - ptr.y;
+      const dist = Math.hypot(dx, dy);
+      const Rr = m * 0.36;
+      if (dist < Rr && dist > 0.001 && fallY > ptr.y - m * 0.05) {
+        const k = (1 - dist / Rr) * (ptr.down ? 1.8 : 1);
+        d.ox += (dx / dist) * k * m * 0.09 * dt;
+      }
+    }
+    // global wind from pointer sweeps
+    d.ox += st.wind * m * 0.02 * dt * d.sp;
+
+    const rx = baseX + d.ox;
+    const ry = fallY;
+    const ln = m * 0.028 * d.len;
+    ctx.strokeStyle = rgba(p.colors[d.c], 0.34 + p.glow * 0.14);
+    ctx.lineWidth = Math.max(0.8, m * 0.0022);
+    ctx.beginPath();
+    ctx.moveTo(rx, ry);
+    ctx.lineTo(rx - (d.ox * 0.02 + st.wind * m * 0.004), ry + ln);
+    ctx.stroke();
+  }
+
+  // splashes
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const s of st.splashes) {
+    const age = (t - s.t0) / 0.9;
+    ctx.strokeStyle = rgba(a3, (1 - age) * 0.6);
+    ctx.lineWidth = Math.max(1, m * 0.005 * (1 - age));
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, age * m * 0.22, 0, TAU);
+    ctx.stroke();
+    ctx.strokeStyle = rgba("#ffffff", (1 - age) * 0.4);
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, age * m * 0.13, 0, TAU);
+    ctx.stroke();
+    softOrb(ctx, s.x, s.y, m * (0.04 + age * 0.1), a1, (1 - age) * 0.5 * (0.5 + p.glow * 0.5));
+  }
+  ctx.restore();
+
+  // vignette
+  const vg = ctx.createRadialGradient(w / 2, h * 0.45, m * 0.3, w / 2, h * 0.5, Math.max(w, h) * 0.8);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.55));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 37 · Whale Song — the giant drifts toward you, tap sings sonar      */
+/* ------------------------------------------------------------------ */
+
+type WhaleState = {
+  whale: { x: number; y: number; ang: number; v: number; dive: number };
+  sonar: { x: number; y: number; t0: number }[];
+  fish: { hx: number; hy: number; ph: number; r: number }[];
+};
+
+const whaleSong: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+
+  fillBg(ctx, w, h, shade(bg0, -0.15), bg1);
+
+  const st = canvasState<WhaleState>(ctx, `whale${p.seed}|${p.density}`, () => ({
+    whale: { x: w * 0.3, y: h * 0.45, ang: 0.4, v: m * 0.02, dive: 0 },
+    sonar: [],
+    fish: Array.from({ length: Math.round(clamp(26 * p.density, 12, 46)) }, () => ({
+      hx: rnd(), hy: rnd(), ph: rnd() * TAU, r: 0.5 + rnd() * 1,
+    })),
+  }));
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      st.sonar.push({ x: tap.x * w, y: tap.y * h, t0: t });
+      if (st.sonar.length > 6) st.sonar.shift();
+      st.whale.dive = 1; // excited breach impulse
+    }
+  }
+  st.sonar = st.sonar.filter((s) => t - s.t0 < 2.4);
+
+  // light shafts from the surface
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < 4; i++) {
+    const lx = w * (0.15 + i * 0.24) + Math.sin(t * 0.12 * sp + i * 1.9) * w * 0.04;
+    const g = ctx.createLinearGradient(lx, 0, lx + m * 0.1, h * 0.9);
+    g.addColorStop(0, rgba(a1, 0.09 + p.glow * 0.05));
+    g.addColorStop(1, rgba(a1, 0));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(lx - m * 0.015, 0);
+    ctx.lineTo(lx + m * 0.045, 0);
+    ctx.lineTo(lx + m * 0.14, h);
+    ctx.lineTo(lx - m * 0.08, h);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // plankton motes
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = 0; i < Math.round(clamp(30 * p.density, 16, 52)); i++) {
+    const px2 = ((i * 137.5) % 100) / 100;
+    const py2 = ((i * 61.8) % 100) / 100;
+    const tw = 0.4 + 0.6 * Math.sin(t * (0.8 + (i % 5) * 0.3) + i * 2.7);
+    softOrb(ctx, px2 * w, py2 * h, m * 0.004 + tw * m * 0.002, a1, 3 * p.glow, 0.2 + tw * 0.3);
+  }
+  ctx.restore();
+
+  // whale physics — gentle attract toward the pointer
+  const wh = st.whale;
+  const size = m * 0.19;
+  let targetAng = wh.ang;
+  if (ptr) {
+    const dx = ptr.x - wh.x;
+    const dy = ptr.y - wh.y;
+    const d = Math.hypot(dx, dy);
+    if (d > m * 0.15) {
+      targetAng = Math.atan2(dy, dx);
+    }
+  }
+  // steer smoothly + gentle wandering
+  let dAng = targetAng - wh.ang;
+  while (dAng > Math.PI) dAng -= TAU;
+  while (dAng < -Math.PI) dAng += TAU;
+  wh.ang += dAng * Math.min(1, dt * 0.9) + Math.sin(t * 0.3 * sp) * dt * 0.12;
+  wh.v += (m * 0.045 * sp * (ptr ? 1.25 : 1) - wh.v) * Math.min(1, dt * 0.8);
+  wh.x += Math.cos(wh.ang) * wh.v * dt * 6;
+  wh.y += Math.sin(wh.ang) * wh.v * dt * 6 + Math.sin(t * 0.8 * sp) * m * 0.02 * dt * 6 * (0.4 + wh.dive);
+  wh.dive *= Math.exp(-dt * 1.4);
+
+  // keep in bounds — steer back when near edges
+  const pad = m * 0.16;
+  if (wh.x < pad || wh.x > w - pad || wh.y < pad || wh.y > h - pad) {
+    const toC = Math.atan2(h / 2 - wh.y, w / 2 - wh.x);
+    let dc = toC - wh.ang;
+    while (dc > Math.PI) dc -= TAU;
+    while (dc < -Math.PI) dc += TAU;
+    wh.ang += dc * Math.min(1, dt * 2.4);
+  }
+
+  // draw the whale — body, fluke, fin, eye + belly glow
+  ctx.save();
+  ctx.translate(wh.x, wh.y);
+  ctx.rotate(wh.ang);
+  const wag = Math.sin(t * 1.6 * sp + 1) * 0.28;
+
+  // fluke (tail)
+  ctx.fillStyle = rgba(shade(a2, -0.25), 0.92);
+  ctx.save();
+  ctx.translate(-size * 0.95, 0);
+  ctx.rotate(wag * 0.6);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(-size * 0.5, -size * 0.42, -size * 0.72, -size * 0.5);
+  ctx.quadraticCurveTo(-size * 0.34, -size * 0.06, -size * 0.3, 0);
+  ctx.quadraticCurveTo(-size * 0.34, size * 0.06, -size * 0.72, size * 0.5);
+  ctx.quadraticCurveTo(-size * 0.5, size * 0.42, 0, 0);
+  ctx.fill();
+  ctx.restore();
+
+  // body
+  const bodyG = ctx.createLinearGradient(0, -size * 0.5, 0, size * 0.5);
+  bodyG.addColorStop(0, shade(a2, -0.05));
+  bodyG.addColorStop(1, shade(a2, -0.5));
+  ctx.fillStyle = bodyG;
+  ctx.beginPath();
+  ctx.moveTo(size, 0);
+  ctx.quadraticCurveTo(size * 0.55, -size * 0.52, -size * 0.5, -size * 0.3);
+  ctx.quadraticCurveTo(-size * 0.98, -size * 0.08, -size, 0);
+  ctx.quadraticCurveTo(-size * 0.98, size * 0.1, -size * 0.5, size * 0.32);
+  ctx.quadraticCurveTo(size * 0.55, size * 0.5, size, 0);
+  ctx.fill();
+
+  // belly stripe glow
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  const belly = ctx.createLinearGradient(0, 0, 0, size * 0.4);
+  belly.addColorStop(0, rgba(a1, 0));
+  belly.addColorStop(1, rgba(a1, 0.16 + p.glow * 0.1));
+  ctx.fillStyle = belly;
+  ctx.beginPath();
+  ctx.ellipse(-size * 0.05, size * 0.22, size * 0.75, size * 0.16, 0, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  // pectoral fin
+  ctx.fillStyle = rgba(shade(a2, -0.35), 0.9);
+  ctx.beginPath();
+  ctx.moveTo(size * 0.1, size * 0.22);
+  ctx.quadraticCurveTo(-size * 0.1, size * 0.55 + wag * size * 0.12, -size * 0.34, size * 0.42);
+  ctx.quadraticCurveTo(-size * 0.16, size * 0.24, size * 0.1, size * 0.22);
+  ctx.fill();
+
+  // eye + cheek glow
+  ctx.fillStyle = rgba("#0b0b12", 0.85);
+  ctx.beginPath();
+  ctx.arc(size * 0.62, -size * 0.1, Math.max(1, size * 0.045), 0, TAU);
+  ctx.fill();
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, size * 0.78, -size * 0.04, size * 0.3, a3, (0.3 + wh.dive * 0.4) * (0.5 + p.glow * 0.5));
+  ctx.restore();
+
+  ctx.restore();
+
+  // sonar rings — expanding song
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const s of st.sonar) {
+    const age = (t - s.t0) / 2.4;
+    for (let ring = 0; ring < 3; ring++) {
+      const rAge = clamp(age - ring * 0.14, 0, 1);
+      if (rAge <= 0 || rAge >= 1) continue;
+      ctx.strokeStyle = rgba(ring === 2 ? a3 : a1, (1 - rAge) * 0.4);
+      ctx.lineWidth = Math.max(1, m * 0.006 * (1 - rAge));
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, rAge * m * 0.55, 0, TAU);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+
+  // fish school — tiny deterministic wanderers that avoid the whale
+  ctx.save();
+  for (const f of st.fish) {
+    const fx = (f.hx * w + Math.sin(t * 0.4 * sp + f.ph) * m * 0.06 + Math.cos(t * 0.13 + f.ph * 2) * m * 0.03);
+    const fy = (f.hy * h + Math.cos(t * 0.33 * sp + f.ph * 1.3) * m * 0.05);
+    const dxw = fx - wh.x;
+    const dyw = fy - wh.y;
+    const dw = Math.hypot(dxw, dyw);
+    if (dw < size * 1.4 && dw > 0.001) {
+      const push = (1 - dw / (size * 1.4)) * size * 0.5;
+      ctx.fillStyle = rgba(a3, 0.55);
+      ctx.beginPath();
+      ctx.arc(fx + (dxw / dw) * push, fy + (dyw / dw) * push, f.r * (m * 0.0022), 0, TAU);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = rgba(a1, 0.4);
+      ctx.beginPath();
+      ctx.arc(fx, fy, f.r * (m * 0.0022), 0, TAU);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // depth vignette
+  const vg = ctx.createRadialGradient(w / 2, h * 0.4, m * 0.35, w / 2, h * 0.5, Math.max(w, h) * 0.82);
+  vg.addColorStop(0, rgba("#000000", 0));
+  vg.addColorStop(1, rgba("#000000", 0.5));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
+/* 38 · Paper Cranes — an origami flock that banks away from you       */
+/* ------------------------------------------------------------------ */
+
+type CraneState = {
+  cranes: { x: number; y: number; hx: number; hy: number; ph: number; size: number; c: number; ox: number; oy: number; vx: number; vy: number; spin: number }[];
+  feathers: { x: number; y: number; vx: number; vy: number; t0: number; rot: number }[];
+};
+
+const paperCranes: DrawFn = (ctx, w, h, t, p, env) => {
+  const [bg0, bg1, a1, a2, a3] = p.colors;
+  const m = Math.min(w, h);
+  const sp = p.speed;
+  const rnd = mulberry32(p.seed);
+
+  fillBg(ctx, w, h, bg0, bg1);
+
+  const st = canvasState<CraneState>(ctx, `crane${p.seed}|${p.density}`, () => {
+    const cranes: CraneState["cranes"] = [];
+    const n = Math.round(clamp(12 * p.density * areaScale(w, h), 6, 20));
+    for (let i = 0; i < n; i++) {
+      cranes.push({
+        x: 0, y: 0,
+        hx: 0.1 + rnd() * 0.8, hy: 0.12 + rnd() * 0.7,
+        ph: rnd() * TAU,
+        size: 0.55 + rnd() * 0.75,
+        c: 2 + Math.floor(rnd() * 3),
+        ox: 0, oy: 0, vx: 0, vy: 0, spin: 0,
+      });
+    }
+    return { cranes, feathers: [] };
+  });
+
+  const dt = env ? clamp(env.dt, 0.001, 0.05) : 0.016;
+  const ptr = pointerPx(env, w, h);
+
+  if (env) {
+    for (const tap of env.pointer.taps) {
+      // flutter burst — nearby cranes spin, paper feathers scatter
+      for (const c of st.cranes) {
+        const cx2 = c.hx * w + c.ox;
+        const cy2 = c.hy * h + c.oy;
+        const d = Math.hypot(cx2 - tap.x * w, cy2 - tap.y * h);
+        const R = m * 0.34;
+        if (d < R && d > 0.001) {
+          const f = (1 - d / R);
+          c.vx += ((cx2 - tap.x * w) / d) * f * m * 1.1;
+          c.vy += ((cy2 - tap.y * h) / d) * f * m * 1.1;
+          c.spin += f * 2.4;
+        }
+      }
+      for (let i = 0; i < 7; i++) {
+        st.feathers.push({
+          x: tap.x * w + (rnd() - 0.5) * m * 0.05,
+          y: tap.y * h + (rnd() - 0.5) * m * 0.05,
+          vx: (rnd() - 0.5) * m * 0.22,
+          vy: (rnd() - 0.7) * m * 0.2,
+          t0: t,
+          rot: rnd() * TAU,
+        });
+      }
+      if (st.feathers.length > 60) st.feathers.splice(0, st.feathers.length - 60);
+    }
+  }
+  st.feathers = st.feathers.filter((f) => t - f.t0 < 1.6);
+
+  // sun disc + haze
+  const sunX = w * 0.72;
+  const sunY = h * 0.2;
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  softOrb(ctx, sunX, sunY, m * 0.2, a3, 0.2 + p.glow * 0.15);
+  softOrb(ctx, sunX, sunY, m * 0.09, "#ffffff", 0.1, 0.7);
+  ctx.restore();
+
+  // washi paper cloud bands
+  ctx.save();
+  for (let i = 0; i < 4; i++) {
+    const cy3 = h * (0.16 + i * 0.2) + Math.sin(t * 0.1 * sp + i * 2.4) * h * 0.02;
+    const cw = w * (0.3 + ((i * 37) % 40) / 100);
+    const cx3 = ((i * 53) % 100) / 100 * w;
+    ctx.fillStyle = rgba("#ffffff", 0.045);
+    ctx.beginPath();
+    ctx.ellipse(cx3, cy3, cw * 0.5, m * 0.02 + (i % 2) * m * 0.008, 0, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // crane flight update + draw
+  const dec = Math.exp(-dt * 1.9);
+  for (const c of st.cranes) {
+    c.ox *= dec;
+    c.oy *= dec;
+    c.vx *= dec;
+    c.vy *= dec;
+    c.spin *= Math.exp(-dt * 2.2);
+
+    const glide = Math.sin(t * 0.5 * sp + c.ph) * m * 0.045;
+    const baseX = c.hx * w + glide;
+    const baseY = c.hy * h + Math.sin(t * 0.34 * sp + c.ph * 1.7) * m * 0.03;
+
+    // bank away from the pointer (elegant flee)
+    if (ptr) {
+      const dx = baseX + c.ox - ptr.x;
+      const dy = baseY + c.oy - ptr.y;
+      const d = Math.hypot(dx, dy);
+      const R = m * 0.3;
+      if (d < R && d > 0.001) {
+        const k = (1 - d / R) * (ptr.down ? 1.7 : 1);
+        c.ox += (dx / d) * k * m * 0.075 * dt;
+        c.oy += (dy / d) * k * m * 0.075 * dt;
+        c.spin += k * dt * 0.9;
+      }
+    }
+    c.ox += c.vx * dt * 0.6;
+    c.oy += c.vy * dt * 0.6;
+
+    const x = baseX + c.ox;
+    const y = baseY + c.oy;
+    const s = m * 0.028 * c.size;
+    const flap = Math.sin(t * (2.2 + c.size) * sp + c.ph) * 0.5;
+    const color = p.colors[c.c];
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(glide * 0.004 + c.spin);
+    ctx.globalAlpha = 0.92;
+
+    // soft shadow under the crane
+    ctx.fillStyle = rgba("#000000", 0.12);
+    ctx.beginPath();
+    ctx.ellipse(s * 0.15, s * 0.85, s * 0.9, s * 0.18, 0, 0, TAU);
+    ctx.fill();
+
+    // body diamond
+    ctx.fillStyle = rgba(color, 0.95);
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.9, 0);
+    ctx.lineTo(0, -s * 0.28);
+    ctx.lineTo(s * 0.9, 0);
+    ctx.lineTo(0, s * 0.34);
+    ctx.closePath();
+    ctx.fill();
+
+    // neck + head
+    ctx.beginPath();
+    ctx.moveTo(s * 0.55, -s * 0.06);
+    ctx.lineTo(s * 1.35, -s * 0.34);
+    ctx.lineTo(s * 1.5, -s * 0.22);
+    ctx.lineTo(s * 0.6, s * 0.06);
+    ctx.closePath();
+    ctx.fill();
+
+    // tail tip
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.6, -s * 0.04);
+    ctx.lineTo(-s * 1.3, -s * 0.3);
+    ctx.lineTo(-s * 1.18, s * 0.02);
+    ctx.closePath();
+    ctx.fill();
+
+    // wings — two flapping triangles
+    ctx.fillStyle = rgba(shade(color, 0.18), 0.88);
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 0.1);
+    ctx.quadraticCurveTo(-s * 0.2, -s * (0.9 + flap * 0.5), s * 0.5, -s * (0.7 + flap * 0.55));
+    ctx.quadraticCurveTo(s * 0.28, -s * 0.3, 0, -s * 0.1);
+    ctx.fill();
+    ctx.fillStyle = rgba(shade(color, -0.1), 0.85);
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 0.05);
+    ctx.quadraticCurveTo(-s * 0.1, s * (0.55 - flap * 0.4), s * 0.42, s * (0.42 - flap * 0.4));
+    ctx.quadraticCurveTo(s * 0.2, s * 0.15, 0, -s * 0.05);
+    ctx.fill();
+
+    // fold line highlights
+    ctx.strokeStyle = rgba("#ffffff", 0.35);
+    ctx.lineWidth = Math.max(0.6, s * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.7, 0);
+    ctx.lineTo(s * 0.7, 0);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // scattered paper feathers
+  for (const f of st.feathers) {
+    const age = (t - f.t0) / 1.6;
+    const fx = f.x + f.vx * age;
+    const fy = f.y + f.vy * age * (1 - age * 0.4) + age * age * m * 0.06;
+    ctx.save();
+    ctx.translate(fx, fy);
+    ctx.rotate(f.rot + age * 5);
+    ctx.fillStyle = rgba(a3, (1 - age) * 0.75);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, m * 0.008, m * 0.003, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // grain + vignette for the paper feel
+  const vg = ctx.createRadialGradient(w / 2, h * 0.45, m * 0.4, w / 2, h * 0.5, Math.max(w, h) * 0.8);
+  vg.addColorStop(0, rgba(bg0, 0));
+  vg.addColorStop(1, rgba(shade(bg0, -0.3), 0.4));
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, w, h);
+};
+
+/* ------------------------------------------------------------------ */
 /* registry                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -3508,4 +4302,8 @@ export const INTERACTIVE_ENGINES = {
   meteorShower,
   koiPond,
   vinylLounge,
+  snowGlobe,
+  neonRain,
+  whaleSong,
+  paperCranes,
 } as const;

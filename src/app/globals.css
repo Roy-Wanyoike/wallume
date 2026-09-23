@@ -163,6 +163,14 @@
 
 /* ---------- Wallume custom animations ---------- */
 
+/* Scene-tinted UI — WallumeApp sets --wallume-a1/a2/a3 from the selected
+   wallpaper's palette; every accent below re-tints as you switch scenes. */
+:root {
+  --wallume-a1: #e879f9;
+  --wallume-a2: #fb7185;
+  --wallume-a3: #fcd34d;
+}
+
 /* flowing gradient border for the selected gallery card */
 @keyframes border-flow {
   0% {
@@ -185,7 +193,13 @@
   inset: -1.5px;
   border-radius: inherit;
   padding: 1.5px;
-  background: linear-gradient(120deg, #d946ef, #f43f5e, #fbbf24, #d946ef);
+  background: linear-gradient(
+    120deg,
+    var(--wallume-a1),
+    var(--wallume-a2),
+    var(--wallume-a3),
+    var(--wallume-a1)
+  );
   background-size: 300% 300%;
   -webkit-mask:
     linear-gradient(#fff 0 0) content-box,
@@ -268,6 +282,42 @@
   transform: translateX(120%);
 }
 
+/* per-card palette glow on hover — cards set --card-a1/--card-a2 inline */
+.gallery-card-shine {
+  transition:
+    transform 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.4s ease;
+}
+.gallery-card-shine:hover {
+  box-shadow:
+    0 14px 40px -12px color-mix(in srgb, var(--card-a1, #e879f9) 42%, transparent),
+    0 6px 22px -8px color-mix(in srgb, var(--card-a2, #fb7185) 30%, transparent);
+}
+
+/* shine sweep for the curated collection rail cards */
+.coll-shine {
+  position: relative;
+  overflow: hidden;
+}
+.coll-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 32%,
+    rgba(255, 255, 255, 0.16) 50%,
+    transparent 68%
+  );
+  transform: translateX(-130%);
+  transition: transform 0.85s ease;
+  pointer-events: none;
+}
+.coll-shine:hover::after {
+  transform: translateX(130%);
+}
+
 /* infinite scene-name marquee under the hero */
 @keyframes marquee-scroll {
   from {
@@ -334,8 +384,14 @@
   width: 72px;
   height: 3px;
   border-radius: 9999px;
-  background: linear-gradient(90deg, #e879f9, #fb7185, #fcd34d);
+  background: linear-gradient(
+    90deg,
+    var(--wallume-a1),
+    var(--wallume-a2),
+    var(--wallume-a3)
+  );
   opacity: 0.9;
+  transition: background 0.6s ease;
 }
 
 /* pulsing "live" indicator dot on gallery thumbs */

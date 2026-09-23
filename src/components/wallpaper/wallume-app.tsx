@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, Loader2, Share2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Copy, Loader2, Mail, MessageCircle, Send, Share2, Twitter, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -48,10 +48,21 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
   const [shareSaving, setShareSaving] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [autoTour, setAutoTour] = useState(false);
   // dialog only renders after user interaction, so a lazy initializer is hydration-safe
   const [canShare] = useState(() => typeof navigator !== "undefined" && typeof navigator.share === "function");
   const { toast } = useToast();
   const { favorites, toggleFavorite, isFavorite } = useFavorites();
+
+  /* ------------- scene-tinted UI: accent colors follow the selection ------------- */
+  useEffect(() => {
+    const colors =
+      config.customColors ?? def.palettes[config.paletteIndex % def.palettes.length].colors;
+    const root = document.documentElement;
+    root.style.setProperty("--wallume-a1", colors[2]);
+    root.style.setProperty("--wallume-a2", colors[3]);
+    root.style.setProperty("--wallume-a3", colors[4]);
+  }, [def, config.paletteIndex, config.customColors]);
 
   /* ---------------- restore likes + shared preset ---------------- */
   useEffect(() => {
@@ -215,6 +226,34 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     });
   }, [def.id]);
 
+  /* ------------------------------- auto-tour ------------------------------- */
+  const autoTourRef = useRef(def);
+  autoTourRef.current = def;
+  useEffect(() => {
+    if (!autoTour) return;
+    // pause the tour while an immersive overlay covers the studio
+    if (fullscreen || ambient) return;
+    const id = setInterval(() => {
+      const cur = autoTourRef.current;
+      const idx = WALLPAPERS.findIndex((w) => w.id === cur.id);
+      const next = WALLPAPERS[(idx + 1) % WALLPAPERS.length];
+      setDef(next);
+      setConfig((c) => ({ ...c, paletteIndex: 0, customColors: null }));
+    }, 15_000);
+    return () => clearInterval(id);
+  }, [autoTour, fullscreen, ambient]);
+
+  const toggleAutoTour = useCallback(() => {
+    setAutoTour((v) => {
+      toast(
+        v
+          ? { title: "Auto-tour paused", description: "The studio stays on the current scene." }
+          : { title: "Auto-tour started 🎬", description: "A new scene every 15 seconds — press T to stop." },
+      );
+      return !v;
+    });
+  }, [toast]);
+
   /* ------------------------------- share -------------------------------- */
   const openShare = useCallback(async () => {
     setShareOpen(true);
@@ -329,6 +368,17 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         case "D":
           setDownloadOpen(true);
           break;
+        case "t":
+        case "T":
+          setAutoTour((v) => {
+            toast(
+              v
+                ? { title: "Auto-tour paused", description: "The studio stays on the current scene." }
+                : { title: "Auto-tour started 🎬", description: "A new scene every 15 seconds — press T to stop." },
+            );
+            return !v;
+          });
+          break;
         case "r":
         case "R":
           setConfig(randomConfig(def));
@@ -381,6 +431,8 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         onOpenAmbient={() => setAmbient(true)}
         onOpenShare={openShare}
         onShuffle={shuffleAll}
+        autoTour={autoTour}
+        onToggleAutoTour={toggleAutoTour}
         onDefChange={selectDef}
         onPatch={patch}
         onReset={reset}
@@ -426,21 +478,66 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
             </div>
           ) : (
             shareUrl && (
-              <div className="flex gap-2">
-                <Input readOnly value={shareUrl} className="font-mono text-xs" aria-label="Share link" />
-                {canShare && (
-                  <Button
-                    className="shrink-0 gap-2 bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white hover:opacity-90"
-                    onClick={nativeShare}
-                  >
-                    <Share2 className="h-4 w-4" />
-                    Share
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Input readOnly value={shareUrl} className="font-mono text-xs" aria-label="Share link" />
+                  {canShare && (
+                    <Button
+                      className="shrink-0 gap-2 bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white hover:opacity-90"
+                      onClick={nativeShare}
+                    >
+                      <Share2 className="h-4 w-4" />
+                      Share
+                    </Button>
+                  )}
+                  <Button className="shrink-0 gap-2" onClick={copyShare}>
+                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    {copied ? "Copied" : "Copy"}
                   </Button>
-                )}
-                <Button className="shrink-0 gap-2" onClick={copyShare}>
-                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  {copied ? "Copied" : "Copy"}
-                </Button>
+                </div>
+                {/* quick-share targets — plain intent URLs, no trackers */}
+                <div className="flex items-center justify-between gap-2 border-t border-white/10 pt-3">
+                  <span className="text-xs text-muted-foreground">Send it to</span>
+                  <div className="flex items-center gap-1.5">
+                    {[
+                      {
+                        label: "WhatsApp",
+                        href: `https://wa.me/?text=${encodeURIComponent(`Check out my “${def.name}” live wallpaper on Wallume 🎨 ${shareUrl}`)}`,
+                        cls: "hover:border-emerald-400/60 hover:text-emerald-300",
+                      },
+                      {
+                        label: "Telegram",
+                        href: `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`My “${def.name}” live wallpaper — it reacts to touch`)}`,
+                        cls: "hover:border-sky-400/60 hover:text-sky-300",
+                      },
+                      {
+                        label: "X",
+                        href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(`My “${def.name}” live wallpaper — it reacts to touch 🎨`)}&url=${encodeURIComponent(shareUrl)}`,
+                        cls: "hover:border-white/60 hover:text-white",
+                      },
+                      {
+                        label: "Email",
+                        href: `mailto:?subject=${encodeURIComponent(`My “${def.name}” Wallume wallpaper`)}&body=${encodeURIComponent(`Made this live wallpaper in Wallume — it even reacts to touch:\n${shareUrl}`)}`,
+                        cls: "hover:border-amber-400/60 hover:text-amber-300",
+                      },
+                    ].map((s) => (
+                      <a
+                        key={s.label}
+                        href={s.href}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        aria-label={`Share via ${s.label}`}
+                        className={`inline-flex h-9 items-center gap-1.5 rounded-full border border-white/12 bg-white/[0.04] px-3 text-xs font-medium text-muted-foreground transition-all hover:-translate-y-0.5 ${s.cls}`}
+                      >
+                        {s.label === "WhatsApp" && <MessageCircle className="h-3.5 w-3.5" />}
+                        {s.label === "Telegram" && <Send className="h-3.5 w-3.5" />}
+                        {s.label === "X" && <Twitter className="h-3.5 w-3.5" />}
+                        {s.label === "Email" && <Mail className="h-3.5 w-3.5" />}
+                        {s.label}
+                      </a>
+                    ))}
+                  </div>
+                </div>
               </div>
             )
           )}

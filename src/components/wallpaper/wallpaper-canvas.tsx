@@ -24,6 +24,11 @@ type Props = {
   touchAction?: "pan-y" | "none";
   /** buzz the device (Vibration API) on taps — main studio canvas only */
   haptic?: boolean;
+  /** delay (ms) before the ticker task starts — spreads mount storms so many
+   * fresh canvases never rasterize their first animated frames at once */
+  startDelay?: number;
+  /** low-priority raster budget (gallery thumbnails) — shares global draw slots */
+  lowPriority?: boolean;
 };
 
 export function WallpaperCanvas({
@@ -37,6 +42,8 @@ export function WallpaperCanvas({
   paused = false,
   touchAction = "pan-y",
   haptic = false,
+  startDelay = 0,
+  lowPriority = false,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -126,62 +133,71 @@ export function WallpaperCanvas({
     }
 
     // animated render through the shared ticker
-    const task = addTickerTask((t) => {
-      if (!ctx || size.w === 0) return;
-      const { def: d, config: c } = stateRef.current;
-      const par = parallax.current;
-      const ptr = pointerRef.current;
+    let startTimer: ReturnType<typeof setTimeout> | null = null;
+    const registerTask = () => {
+      const task = addTickerTask((t) => {
+        if (!ctx || size.w === 0) return;
+        const { def: d, config: c } = stateRef.current;
+        const par = parallax.current;
+        const ptr = pointerRef.current;
 
-      // per-canvas delta time (clamped so pauses never explode the sim)
-      const dt = lastT === null ? 0.016 : Math.min(0.05, Math.max(0.001, t - lastT));
-      lastT = t;
+        // per-canvas delta time (clamped so pauses never explode the sim)
+        const dt = lastT === null ? 0.016 : Math.min(0.05, Math.max(0.001, t - lastT));
+        lastT = t;
 
-      // ease pointer towards its target & estimate velocity
-      ptr.x += (ptr.tx - ptr.x) * Math.min(1, dt * 14);
-      ptr.y += (ptr.ty - ptr.y) * Math.min(1, dt * 14);
-      if (dt > 0) {
-        ptr.vx = (ptr.tx - ptr.lastTx) / dt;
-        ptr.vy = (ptr.ty - ptr.lastTy) / dt;
-      }
-      ptr.lastTx = ptr.tx;
-      ptr.lastTy = ptr.ty;
+        // ease pointer towards its target & estimate velocity
+        ptr.x += (ptr.tx - ptr.x) * Math.min(1, dt * 14);
+        ptr.y += (ptr.ty - ptr.y) * Math.min(1, dt * 14);
+        if (dt > 0) {
+          ptr.vx = (ptr.tx - ptr.lastTx) / dt;
+          ptr.vy = (ptr.ty - ptr.lastTy) / dt;
+        }
+        ptr.lastTx = ptr.tx;
+        ptr.lastTy = ptr.ty;
 
-      // ease towards target offset for buttery parallax motion
-      par.x += (par.tx - par.x) * 0.08;
-      par.y += (par.ty - par.y) * 0.08;
+        // ease towards target offset for buttery parallax motion
+        par.x += (par.tx - par.x) * 0.08;
+        par.y += (par.ty - par.y) * 0.08;
 
-      const env: DrawEnv = {
-        pointer: {
-          x: ptr.x,
-          y: ptr.y,
-          vx: ptr.vx,
-          vy: ptr.vy,
-          speed: Math.hypot(ptr.vx, ptr.vy),
-          down: ptr.down,
-          inside: ptr.inside,
-          taps: ptr.taps,
-        },
-        dt,
-      };
+        const env: DrawEnv = {
+          pointer: {
+            x: ptr.x,
+            y: ptr.y,
+            vx: ptr.vx,
+            vy: ptr.vy,
+            speed: Math.hypot(ptr.vx, ptr.vy),
+            down: ptr.down,
+            inside: ptr.inside,
+            taps: ptr.taps,
+          },
+          dt,
+        };
 
-      if (interactive && (Math.abs(par.x) > 0.001 || Math.abs(par.y) > 0.001)) {
-        // scale the scene up slightly and offset it so edges never show.
-        // scale about the canvas CENTER (not the origin) — scaling about the
-        // origin exposed an unpainted strip on the top/left whenever the
-        // pointer offset was positive, freezing ghost trails there.
-        const k = 1.06;
-        const ox = par.x * size.w * 0.022;
-        const oy = par.y * size.h * 0.022;
-        ctx.setTransform(k, 0, 0, k, ox + (size.w * (1 - k)) / 2, oy + (size.h * (1 - k)) / 2);
-        renderFrame(ctx, size.w, size.h, t, d, c, env);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-      } else {
-        renderFrame(ctx, size.w, size.h, t, d, c, env);
-      }
-      // taps are consumed by the engine this frame
-      ptr.taps.length = 0;
-    }, effFps);
-    taskRef.current = task;
+        if (interactive && (Math.abs(par.x) > 0.001 || Math.abs(par.y) > 0.001)) {
+          // scale the scene up slightly and offset it so edges never show.
+          // scale about the canvas CENTER (not the origin) — scaling about the
+          // origin exposed an unpainted strip on the top/left whenever the
+          // pointer offset was positive, freezing ghost trails there.
+          const k = 1.06;
+          const ox = par.x * size.w * 0.022;
+          const oy = par.y * size.h * 0.022;
+          ctx.setTransform(k, 0, 0, k, ox + (size.w * (1 - k)) / 2, oy + (size.h * (1 - k)) / 2);
+          renderFrame(ctx, size.w, size.h, t, d, c, env);
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+        } else {
+          renderFrame(ctx, size.w, size.h, t, d, c, env);
+        }
+        // taps are consumed by the engine this frame
+        ptr.taps.length = 0;
+      }, effFps, { low: lowPriority });
+      taskRef.current = task;
+      return task;
+    };
+    if (startDelay > 0) {
+      startTimer = setTimeout(registerTask, startDelay);
+    } else {
+      registerTask();
+    }
 
     // redraw immediately when config changes
     drawConfigNow();
@@ -193,7 +209,7 @@ export function WallpaperCanvas({
 
     // pause when scrolled out of view
     const io = new IntersectionObserver(
-      (entries) => entries.forEach((e) => task.setVisible(e.isIntersecting)),
+      (entries) => entries.forEach((e) => taskRef.current?.setVisible(e.isIntersecting)),
       { rootMargin: "80px" },
     );
     io.observe(wrap);
@@ -244,7 +260,8 @@ export function WallpaperCanvas({
     return () => {
       ro.disconnect();
       io.disconnect();
-      task.destroy();
+      if (startTimer !== null) clearTimeout(startTimer);
+      taskRef.current?.destroy();
       taskRef.current = null;
       lastT = null;
       if (interactive) {
@@ -255,7 +272,7 @@ export function WallpaperCanvas({
         wrap.removeEventListener("pointerleave", onLeave);
       }
     };
-  }, [def.id, interactive, isStatic, effFps, eco, haptic]);
+  }, [def.id, interactive, isStatic, effFps, eco, haptic, startDelay, lowPriority]);
 
   // react to config changes without rebuilding observers
   useEffect(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ArrowRight, Download, Heart, Search, SlidersHorizontal, Sparkles, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -267,7 +267,7 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
               onClick={() => setCollection(active ? null : coll.id)}
               aria-pressed={active}
               className={cn(
-                "group/coll relative shrink-0 overflow-hidden rounded-2xl border p-3.5 pr-5 text-left transition-all duration-300 hover:-translate-y-0.5",
+                "coll-shine group/coll relative shrink-0 rounded-2xl border p-3.5 pr-5 text-left transition-all duration-300 hover:-translate-y-0.5",
                 active
                   ? "border-white/40 shadow-lg shadow-white/10"
                   : "border-white/10 hover:border-white/25",
@@ -361,6 +361,11 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
                   "gallery-card-shine group relative overflow-hidden rounded-2xl border bg-zinc-900/60 shadow-lg transition-all duration-300 hover:-translate-y-1 hover:shadow-xl",
                   selected ? "selected-card border-fuchsia-400/70 shadow-fuchsia-500/20" : "border-white/10 hover:border-white/25",
                 )}
+                style={{
+                  // per-card accent glow (used by .gallery-card-shine:hover box-shadow)
+                  "--card-a1": wp.palettes[0].colors[2],
+                  "--card-a2": wp.palettes[0].colors[3],
+                } as CSSProperties}
               >
                 <button
                   onClick={() => onSelect(wp)}
@@ -371,8 +376,13 @@ export function GalleryGrid({ selectedId, stats, likedIds, favorites, onToggleFa
                     <WallpaperCanvas
                       def={wp}
                       config={{ ...defaultConfig(wp), seed: seedForId(wp.id) }}
-                      fps={24}
-                      maxPixels={85_000}
+                      fps={18}
+                      maxPixels={55_000}
+                      // stagger animation starts (deterministic per card) and
+                      // share the low-priority raster budget — keeps memory
+                      // bounded when a filter change remounts 24 canvases at once
+                      startDelay={(seedForId(wp.id) % 12) * 80}
+                      lowPriority
                       className="absolute inset-0"
                     />
                     <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/20" />

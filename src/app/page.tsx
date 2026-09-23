@@ -113,10 +113,10 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
         </FadeIn>
         <FadeIn delay={0.16}>
           <p className="mx-auto mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-            330+ interactive scenes — fish that scatter, balloons you can release, meteors
-            you can call. Tune palette, motion and glow in real time, then export a crisp
-            high-resolution wallpaper — or a looping live video — sized exactly for your
-            phone, tablet or desktop.
+            370+ interactive scenes — fish that scatter, snow you can stir, a whale that
+            follows your finger. Tune palette, motion and glow in real time, then export a
+            crisp high-resolution wallpaper — or a looping live video — sized exactly for
+            your phone, tablet or desktop.
           </p>
         </FadeIn>
         <FadeIn delay={0.24}>
@@ -150,6 +150,27 @@ function Hero({ totalDownloads }: { totalDownloads: number }) {
             </p>
           </FadeIn>
         )}
+        <FadeIn delay={0.36}>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-2" role="list" aria-label="Wallume in numbers">
+            {[
+              { k: `${WALLPAPERS.length}`, v: "living scenes" },
+              {
+                k: `${new Set(WALLPAPERS.map((w) => w.interact?.kind).filter(Boolean)).size}`,
+                v: "touch reactions",
+              },
+              { k: "6 devices", v: "export sizes" },
+              { k: "0 €", v: "forever" },
+            ].map((s) => (
+              <span
+                key={s.v}
+                role="listitem"
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-1.5 text-xs text-muted-foreground backdrop-blur"
+              >
+                <span className="font-bold text-foreground">{s.k}</span> {s.v}
+              </span>
+            ))}
+          </div>
+        </FadeIn>
       </div>
     </section>
   );
@@ -263,6 +284,7 @@ function HowTo() {
                   ["R", "randomize"],
                   ["F", "fullscreen"],
                   ["A", "ambient"],
+                  ["T", "auto-tour"],
                   ["D", "download"],
                 ].map(([key, label]) => (
                   <span key={key} className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5">
@@ -304,7 +326,7 @@ function SiteFooter() {
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-4 text-sm text-muted-foreground sm:flex-row">
         <p className="flex items-center gap-2">
           <span className="font-semibold text-foreground">Wallume</span>
-          <span className="version-chip">v2.4</span>
+          <span className="version-chip">v2.5</span>
           <span className="hidden sm:inline">— interactive wallpapers, painted by code.</span>
         </p>
         <nav aria-label="Footer" className="flex items-center gap-4">
