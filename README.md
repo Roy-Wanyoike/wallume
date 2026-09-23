@@ -1,4 +1,4 @@
-# 🌈 Wallume — Interactive Live Wallpapers
+# Wallume — Interactive Live Wallpapers
 
 **216 living scenes that react to your touch.** Pick one, play with it, tune it, then export a
 pixel-perfect wallpaper for your phone, tablet or desktop — or record a looping live video.
