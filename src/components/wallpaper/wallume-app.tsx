@@ -31,6 +31,8 @@ import { ScrollProgress } from "./scroll-progress";
 import { DownloadDialog } from "./download-dialog";
 import { AmbientMode } from "./ambient-mode";
 import { ZenMode } from "./zen-mode";
+import { CommandPalette } from "./command-palette";
+import type { PaletteMode } from "./command-palette";
 import { WallpaperCanvas } from "./wallpaper-canvas";
 import { useFavorites } from "@/hooks/use-favorites";
 
@@ -52,6 +54,8 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [autoTour, setAutoTour] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteMode, setPaletteMode] = useState<PaletteMode>("main");
   // dialog only renders after user interaction, so a lazy initializer is hydration-safe
   const [canShare] = useState(() => typeof navigator !== "undefined" && typeof navigator.share === "function");
   const { toast } = useToast();
@@ -123,6 +127,18 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     setConfig(randomConfig(next));
     toast({ title: `${next.icon} ${next.name}`, description: next.tagline });
   }, [def.id, toast]);
+
+  /** Step ±1 through the collection (arrow keys / palette). */
+  const stepScene = useCallback(
+    (dir: 1 | -1) => {
+      const idx = WALLPAPERS.findIndex((w) => w.id === def.id);
+      const next = WALLPAPERS[(idx + dir + WALLPAPERS.length) % WALLPAPERS.length];
+      setDef(next);
+      setConfig((c) => ({ ...c, paletteIndex: 0, customColors: null }));
+      toast({ title: `${next.icon} ${next.name}`, description: next.tagline });
+    },
+    [def.id, toast],
+  );
 
   /** Pick a scene whose mood matches the current hour — stable per hour. */
   const pickForNow = useCallback(() => {
@@ -347,7 +363,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (
-        target &&
+        target instanceof Element &&
         (target.tagName === "INPUT" ||
           target.tagName === "TEXTAREA" ||
           target.tagName === "SELECT" ||
@@ -355,25 +371,37 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
           target.closest("[role=dialog]"))
       )
         return;
+      // ⌘K / Ctrl+K — command palette (before the modifier bail-out)
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPaletteMode("main");
+        setPaletteOpen((v) => !v);
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (zen) return; // zen mode owns the keyboard — Esc handled inside the overlay
 
-      const idx = WALLPAPERS.findIndex((w) => w.id === def.id);
+      // palette quick keys
+      if (e.key === "?" || (e.key === "/" && e.shiftKey)) {
+        e.preventDefault();
+        setPaletteMode("shortcuts");
+        setPaletteOpen(true);
+        return;
+      }
+      if (e.key === "p" || e.key === "P") {
+        e.preventDefault();
+        setPaletteMode("main");
+        setPaletteOpen(true);
+        return;
+      }
+
       switch (e.key) {
-        case "ArrowRight": {
-          const next = WALLPAPERS[(idx + 1) % WALLPAPERS.length];
-          setDef(next);
-          setConfig((c) => ({ ...c, paletteIndex: 0, customColors: null }));
-          toast({ title: `${next.icon} ${next.name}`, description: next.tagline });
+        case "ArrowRight":
+          stepScene(1);
           break;
-        }
-        case "ArrowLeft": {
-          const prev = WALLPAPERS[(idx - 1 + WALLPAPERS.length) % WALLPAPERS.length];
-          setDef(prev);
-          setConfig((c) => ({ ...c, paletteIndex: 0, customColors: null }));
-          toast({ title: `${prev.icon} ${prev.name}`, description: prev.tagline });
+        case "ArrowLeft":
+          stepScene(-1);
           break;
-        }
         case "f":
         case "F":
           setFullscreen((v) => !v);
@@ -426,7 +454,7 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [def, pickForNow, toast, zen]);
+  }, [def, pickForNow, toast, zen, stepScene]);
 
   return (
     <>
@@ -489,6 +517,29 @@ export function WallumeApp({ initialStats }: { initialStats: StatsMap }) {
         config={config}
         device={device}
         onDownloaded={recordDownload}
+      />
+
+      <CommandPalette
+        open={paletteOpen}
+        mode={paletteMode}
+        onOpenChange={setPaletteOpen}
+        onModeChange={setPaletteMode}
+        def={def}
+        favorites={favorites}
+        isFavorite={isFavorite}
+        onSelect={selectDef}
+        actions={{
+          shuffle: shuffleAll,
+          nextScene: () => stepScene(1),
+          prevScene: () => stepScene(-1),
+          toggleFullscreen: () => setFullscreen((v) => !v),
+          openZen: () => setZen(true),
+          toggleAmbient: () => setAmbient((v) => !v),
+          openDownload: () => setDownloadOpen(true),
+          toggleAutoTour: toggleAutoTour,
+          randomStyle: randomize,
+          pickForNow: pickForNow,
+        }}
       />
 
       {/* share dialog */}

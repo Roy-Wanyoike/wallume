@@ -1,6 +1,6 @@
 "use client";
 
-import { Leaf, Moon, Sun } from "lucide-react";
+import { Leaf, Moon, Search, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { useEcoMode } from "@/lib/eco-store";
@@ -55,6 +55,20 @@ export function SiteHeader() {
             onClick={toggleEco}
           >
             <Leaf className={cn("h-4 w-4", eco && "drop-shadow-[0_0_6px_rgba(52,211,153,0.8)]")} />
+          </Button>
+          <Button
+            variant="outline"
+            aria-label="Search scenes and actions — Control K"
+            title="Command palette (⌘K / Ctrl+K)"
+            className="h-9 gap-2 border-white/10 text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() =>
+              window.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true }),
+              )
+            }
+          >
+            <Search className="h-4 w-4" aria-hidden="true" />
+            <kbd className="hidden rounded border border-white/15 bg-white/5 px-1 text-[10px] font-semibold sm:inline">⌘K</kbd>
           </Button>
           <Button
             variant="outline"
